@@ -1,0 +1,2140 @@
+---
+title: "Nucleation Experiment"
+author: "Holl et al."
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-location: left
+    toc_depth: 3
+    code-tools:
+      source: true
+      toggle: false
+      caption: none
+    code-fold: true
+    code-summary: "show code"
+editor: source
+self-contained: true
+always_allow_html: true
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#  Setup environment
+
+## 1) R Environment
+
+```{r path}
+path <- getwd()
+version
+```
+
+```{r packages}
+if(!require(pacman)){install.packages("pacman")}
+pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", "car", "performance", "cowplot", "MuMIn")
+pacman::p_load(pkg_list, character.only = TRUE)
+```
+
+
+## 2) Read data
+
+`trees_clean`: data of trees (planted/not-planted)
+
+```{r}
+trees_clean <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_trees.xlsx"))
+trees_clean <- trees_clean |>
+  dplyr::mutate(scientificName = dplyr::if_else(is.na(scientificName), "Unclassified", scientificName))
+```
+
+`grass_cover`: grass cover per plot (%)
+
+```{r}
+grass_cover <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_grasscover.xlsx"))
+```
+
+`lidar`: Canopy Height Metric (`CHM_mean`, `CHM_SD`, and `CHM_CV`), Canopy cover (`Canopy_cover`), Rugosity (`Rugosity_SD`, and `Rugosity_CV`), Leaf Area Index (`LAI_mean`, `LAI_SD`, and `LAI_CV`), and LAIunder (`LAIunder_mean`, `LAIunder_SD`, `LAIunder_CV`).
+
+```{r}
+lidar2022_wide <- readxl::read_xlsx(
+  paste0(path, "/tab_metrics_LiDAR_2022_v2.xlsx")) |>
+  dplyr::select(Trat:LAIunder_SD) |>
+  tidyr::separate(Trat, into = c("Bloco", "Perc_cobertura","Tratamento"), sep = "_") |>
+  dplyr::mutate(Tratamento = dplyr::if_else(is.na(Tratamento), "controle", Tratamento),
+                Tratamento = paste(Perc_cobertura, Tratamento, sep="_"),
+                ano =  2022) |>
+  dplyr::select(-Perc_cobertura) 
+lidar2024_wide <- readxl::read_xlsx(
+  paste0(path, "/tab_metrics_LiDAR_2024_v2.xlsx"))|>
+  dplyr::select(Trat:LAIunder_SD) |>
+  tidyr::separate(Trat, into = c("Bloco", "Perc_cobertura","Tratamento"), sep = "_") |>
+  dplyr::mutate(Tratamento = dplyr::if_else(is.na(Tratamento), "controle", Tratamento),
+                Tratamento = paste(Perc_cobertura, Tratamento, sep="_"),
+                ano =  2024) |>
+  dplyr::select(-Perc_cobertura)
+
+lidar_wide <- dplyr::bind_rows(lidar2022_wide, lidar2024_wide) |># 40 x 12
+   dplyr::mutate(
+     Tratamento = factor(Tratamento, 
+                         levels = c("25_tabuleiro", "25_faixa",  "50_tabuleiro", "50_faixa", "100_controle"),
+                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")))
+
+```
+
+#### Table 1 - List of sampled species (planted and recruits)
+
+ two tables: 
+
+
+```{r}
+trees_clean |> dplyr::select(RP, family, scientificName) |>
+  unique()|>
+  dplyr::mutate(valor=TRUE)|>
+  tidyr::pivot_wider(names_from = RP, values_from = valor, values_fill = FALSE) |>
+  dplyr::arrange(desc(planted), family, scientificName) # |> writexl::write_xlsx("tab1.xlsx")
+
+trees_clean |> dplyr::select(RP, family, scientificName) |>
+  unique() |> with(table(RP))
+```
+
+
+# I. Results - Field data
+
+## A) Survival of planted trees - ok
+
+### (i) Organizing data
+
+```{r}
+trees_clean |> with(table(RP, scientificName)) |>
+  as.data.frame() |> 
+  dplyr::filter(Freq>0) |> # writexl::write_xlsx("tab_spp_plantio.xlsx")
+  dplyr::filter(RP=="planted")
+```
+
+Reading scientific names
+
+```{r}
+survival_planted2024 <- trees_clean |> # 5416 stems
+  dplyr::filter(ano==2024)|> 
+  dplyr::select(bloco:arv, Hm, scientificName, RP) |> # 3,199 stems
+  unique() |> # 1487
+  dplyr::filter(RP=="planted") |> # 1135
+  dplyr::group_by(tratamento,bloco, parcela)|>
+  dplyr::summarise(n = dplyr::n(), .groups = "drop")|>
+  dplyr::arrange(desc(n))
+```
+
+### (ii) Survival analysis
+
+24 seedlings per plot
+
+```{r}
+mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv2 <- lme4::glmer(cbind(n, 24 - n) ~ bloco +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv3 <- lme4::glmer(cbind(n, 24 - n) ~ bloco+ +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv_null <-lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco/parcela), data=survival_planted2024, family = binomial(link = "logit"))
+AIC(mod_surv1, mod_surv2, mod_surv3, mod_surv_null)
+```
+
+```{r}
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(mod_surv1)
+DHARMa::plotQQunif(mod_surv1)
+```
+
+Marginal $R^2$ / Conditional $R^2$
+
+```{r}
+MuMIn::r.squaredGLMM(mod_surv1)
+0.117/ 0.544
+```
+
+Which it is `r round(0.117/0.544, 3)`
+
+```{r}
+sjPlot::tab_model(mod_surv1)
+broom.mixed::tidy(mod_surv1) |> dplyr::mutate(dplyr::across(4:7, round, 3)) 
+summary(mod_surv1)
+```
+
+Planted trees in treatment `F25` have `r round((1 - exp(-0.222))*100,2)`% *less* likely to survive (`OR=exp(-0.222)`) than in treatment `100%` ($p<0.1$)
+
+Planted trees in treatment `N25` have `r  round((1 - exp(-0.548))*100,2)`% *less* likely to survive (`OR=exp(-0.548)`) than in treatment `100%` ($p<0.001$)
+
+```{r}
+round((1 - exp(-0.548))*100,2)
+emmeans::emmeans(mod_surv1, ~ tratamento) |> 
+  multcomp::cld(details = TRUE, adjust="sidak")
+```
+
+### (iii) Table S1 - Survival
+
+```{r}
+survival_planted2024 |>
+  dplyr::group_by( tratamento)|>
+  dplyr::summarise(Mean = round(mean((n/24)*100),1),
+                  Max = round(max((n/24)*100),1),
+                  Min = round(min((n/24)*100),1) ) |>
+  dplyr::mutate(values = paste0(Mean," (",Min," - ",Max,")")) |>
+  dplyr::select(-c(Mean, Max, Min)) 
+```
+
+
+
+
+## B) Grass cover
+
+### (i)  Organizing data
+
+How planting scheme affected grass cover inside and outside planted areas?
+
+Excluding treatment `100`:
+
+```{r}
+ordem <- c("N25", "F25","N50", "F50", "100")
+grass_cover <- readxl::read_xlsx(
+  paste0(path, "/Itatinga_Nuc_grasscover.xlsx"))|>
+  dplyr::mutate(
+    grass_perc = dplyr::if_else(gramineas_perc>=1, 0.9999, gramineas_perc),
+    tratamento = ordered(tratamento, 
+                         levels = ordem,
+                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%"))) |>
+   droplevels()
+grass_cover2024 <- grass_cover |> dplyr::filter(tratamento!="Planting 100%") |> dplyr::filter(ano==2024)
+```
+
+Too many zeros? Zero-Inflated model? There is few zeros. *Only binomial fit*
+
+```{r}
+grass_cover2024 |>
+  ggplot(aes(x=grass_perc))+
+  geom_histogram()+
+  facet_grid(plantio~tratamento)+theme_classic()
+```
+
+### (ii) Analysis
+
+```{r}
+modelo_gc24a <- grass_cover2024 |>
+  with(glmmTMB::glmmTMB(grass_perc ~ tratamento*plantio + (1 | bloco),
+                        family = glmmTMB::beta_family()))
+modelo_gc24b <-  glmmTMB::glmmTMB(grass_perc ~ tratamento+plantio + (1 | bloco),
+                   ziformula = ~ 1, family = glmmTMB::beta_family(), data=grass_cover2024)
+modelo_gc24c <-  glmmTMB::glmmTMB(grass_perc ~ plantio + (1 | bloco), 
+                                  family = glmmTMB::beta_family(), data=grass_cover2024)
+modelo_gc24d <-  glmmTMB::glmmTMB(grass_perc ~ tratamento + (1 | bloco), 
+                                  family = glmmTMB::beta_family(), data=grass_cover2024)
+modelo_gc24null <-  glmmTMB::glmmTMB(grass_perc ~ 0 + (1 | bloco), 
+                                     family = glmmTMB::beta_family(), data=grass_cover2024)
+
+AIC(modelo_gc24a, modelo_gc24b, modelo_gc24c, modelo_gc24d, modelo_gc24null)
+```
+
+Analysis of residuals
+
+```{r}
+par(mfrow=c(1,2))
+DHARMa::plotQQunif(modelo_gc24a)
+DHARMa::plotResiduals(modelo_gc24a)
+```
+
+Is there any difference between treatments considering inside/outside?
+
+```{r}
+resultado_24 <- emmeans::emmeans(modelo_gc24a, ~ tratamento|plantio) |> 
+  multcomp::cld( details = TRUE)
+resultado_24$emmeans
+```
+
+**Answer:** yes.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+resultado_24a <- emmeans::emmeans(modelo_gc24a, ~ plantio|tratamento) |> 
+  multcomp::cld(details = TRUE)
+resultado_24a$emmeans
+```
+
+**Answer:** yes.
+
+### (iii) Figure - Grass cover
+
+*Small letters*: Comparison between treatments, only inside planted areas. 
+
+*Capital letters*: Comparison between treatments, only outside planted areas.
+
+
+```{r, fig.width=3.54,fig.height=3.54}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(grass_cover$tratamento)),each=2),
+  plantio = levels(as.factor(grass_cover$plantio)),
+  label = c("BC      ", "      a",
+            "AB      ", "      a",
+            "C      ", "      a",
+            "A      ", "      a",
+            "A",""),  
+  y = c(0.6, 0.82, 
+        0.5, 0.8, 
+        0.65, 0.8, 
+        0.35, 0.8,
+        0.35, .1)
+  ) |>
+  dplyr::mutate(
+    tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  )
+
+fig_grass <- grass_cover |>  
+  dplyr::filter(ano==2024) |>
+  dplyr::group_by(tratamento, plantio) |>
+  dplyr::summarise(grass_cover_mean = mean(gramineas_perc),
+                   sd = sd(gramineas_perc),
+                   n = dplyr::n(),
+                   se = sd/sqrt(n),
+                   .groups="drop") |>
+  dplyr::mutate(
+    tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  ) |>
+  ggplot(aes(x = tratamento, y = grass_cover_mean, fill = plantio)) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = grass_cover_mean - se, ymax = grass_cover_mean + se),
+                width = .2, position = position_dodge(0.9)) +
+  scale_fill_manual(
+    labels = c('Planted', 'Unplanted'), 
+    values = c("#92D050", "white")) +
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=4, vjust = -0.5) +
+  labs(fill = "", 
+       y = "Grass cover (%)",
+       x = "") +
+  scale_y_continuous(expand = c(0,0), 
+                     labels = scales::percent_format(accuracy = 1), 
+                     limits = c(0,1)) +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=11),
+    axis.text.y = element_text(color="black", size=11),
+    axis.title.y = element_text(color="black", size=13),
+    legend.position = c(0.84, 0.99),
+    legend.text = element_text(size = 11, margin = margin(0,0,0, l=1, "mm")),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank())
+fig_grass
+ggsave("fig_grass.png", plot=fig_grass, width=90, height = 90 ,unit="mm")
+```
+
+
+
+### (iv) Table S1 - Grass cover
+
+
+```{r}
+grass_cover |>
+  dplyr::group_by(ano, tratamento, plantio)|>
+  dplyr::summarise(Mean = mean(gramineas_perc)*100,
+                  Max = max(gramineas_perc)*100,
+                  Min = min(gramineas_perc)*100) |>
+  dplyr::mutate(values = paste0(Mean," (",Min," - ",Max,")")) |>
+  dplyr::select(-c(Mean, Max, Min)) |>
+  tidyr::pivot_wider(names_from = tratamento, values_from = values)
+```
+
+## C) Recruitment
+
+### (i)  Organizing data
+
+Read data
+
+```{r}
+recruitment <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_recruitment.xlsx"))
+```
+
+Visual exploration of small recruitment ( *saplings* )
+
+```{r}
+recruitment |>
+  ggplot(
+    aes(x = n_small, 
+        y = as.factor(ano), 
+        group = as.factor(ano), 
+        fill = as.factor(ano))) + 
+  ggridges::geom_density_ridges(alpha=0.5,
+                                quantile_lines = TRUE, 
+                                quantiles = c(0.025, 0.5, 0.975),
+                                jittered_points = TRUE)+
+  scale_fill_brewer(palette = "RdYlBu")+
+  scale_y_discrete(expand=c(0,0))+
+  facet_grid(plantio~tratamento)+
+  theme_bw()
+```
+
+-   Only 2024 and by block
+
+```{r}
+regenerants_2024 <- recruitment |> 
+  dplyr::filter(ano==2024) |>
+  #dplyr::filter(tratamento!="100") |>
+  dplyr::mutate(
+    n = dplyr::if_else(is.na(n_small), 0, n_small))
+  # dplyr::group_by(tratamento, plantio, bloco) |> dplyr::summarise(n = sum(n_small, na.rm = TRUE), .groups = "drop")
+```
+
+
+#### List of recruitment species
+
+```{r}
+table_recruits <- trees_clean |>
+  dplyr::filter(RP!="planted") |>
+  dplyr::filter(ano == 2024) |>
+  dplyr::mutate(
+    tratamento = as.factor(tratamento),
+    tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei 25%" = "N25",
+                                     "Strips 25%" = "F25",
+                                     "Nuclei 50%" = "N50",
+                                     "Strips 50%" = "F50",
+                                     "Planting 100%" = "100")
+    ) |>
+    dplyr::group_by(tratamento, family, scientificName)|>
+  dplyr::summarise(n_large = dplyr::n(), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = tratamento, values_from = n_large, values_fill = 0) |> 
+  dplyr::arrange(family, scientificName)
+table_recruits |> knitr::kable(format = "html")
+table_recruits  |> writexl::write_xlsx("Table Recruits.xlsx")
+```
+
+
+
+### (ii) Analysis for smaller recruits
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
+                   ziformula = ~1,
+                   #family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   #family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
+                   ziformula = ~1,
+                   #family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   #family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
+                   ziformula = ~1,
+                   #family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   #family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
+                   ziformula = ~1,
+                   #family = poisson(), # ZIP
+                   family = glmmTMB::nbinom2(), # ZINB
+                   #family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = regenerants_2024)
+# ZIP  3746.473 (null) | 3166.141 (plantio*tratamento)  3606.090 (só tratamento) | 3433.868 (só plantio)
+# ZINB  1740.191 (null) | 1689.567 (plantio*tratamento)  1717.110 (só tratamento) | 1694.276 (só plantio)
+# Hurdle  1740.185 (null) | 1689.565 (plantio*tratamento)  1717.106 (só tratamento) | 1694.273 (só plantio)
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+```
+
+`non-positive-definite Hessian matrix`  indicates that there are problems in estimating the model parameters. This may be related to redundancies in the random effects, perfect separation, few data for some combinations of factors, or problems in choosing the distribution. Therefore, let's check the singularity:
+
+```{r}
+performance::check_singularity(modelo_reg1)
+```
+
+If a model is "singular", this means that some dimensions of the variance-covariance matrix have been estimated as exactly zero. This often occurs for mixed models with complex random effects structures. Therefore, there is a model convergence problem, and we have to change the random effects.
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+
+
+Is there any difference between treatments considering only inside or outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ tratamento|plantio) |> 
+  multcomp::cld(details = TRUE)
+```
+
+**Answer:** Yes (inside) and no (outside).
+
+Is there any difference between treatments *not* considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_reg2, ~ tratamento) |> 
+  multcomp::cld(details = TRUE)
+```
+
+
+**Answer:** No.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |> 
+  multcomp::cld(details = TRUE)
+```
+
+**Answer:** Yes.
+
+
+### (iii) Analysis for larger recruitment
+
+
+```{r}
+regenerants_2024 <- recruitment |> 
+  dplyr::filter(ano==2024) |>
+  # dplyr::filter(tratamento!="100") |>
+  dplyr::mutate(n = dplyr::if_else(is.na(n_large), 0, n_large))
+regenerants_2024 |>
+  dplyr::group_by(tratamento, plantio, bloco) |> 
+  #dplyr::summarise(n = sum(n, na.rm = TRUE), .groups = "drop") |>
+  ggplot(aes(x=plantio, y=n, color=bloco))+
+  geom_point()+facet_wrap(~tratamento)+theme_bw()
+
+```
+
+
+Models
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
+                   ziformula = ~1,
+                    # family = poisson(),
+                     family = glmmTMB::nbinom2(),
+                    # family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
+                   ziformula = ~1,
+                   # family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                   # family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
+                   ziformula = ~1,
+                  #   family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                  #  family = glmmTMB::truncated_nbinom2(),
+                   data = regenerants_2024)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
+                   ziformula = ~1,
+                    # family = poisson(), # ZIP
+                     family = glmmTMB::nbinom2(), # ZINB
+                    # family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = regenerants_2024)
+# ZIP   920 (só plantio)   plantio*tratamento
+# ZINB  770  (só plantio)  plantio*tratamento
+# Hurdle 772  (só plantio)   plantio*tratamento
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+```
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+
+```{r}
+MuMIn::r.squaredGLMM(modelo_reg3)
+0.037/ 0.048
+#MuMIn::r.squaredGLMM(modelo_reg1)
+#0.088/ 0.095
+```
+
+0.037/ 0.048 variance explained by fixed effects and by the entire model (around `r 0.037/ 0.048` % is explained by fixed effects)
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+
+
+Is there any difference between treatments considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ tratamento|plantio) |> 
+  multcomp::cld(details = TRUE)
+```
+
+**Answer:** No.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |> 
+  multcomp::cld(details = TRUE)
+```
+
+**Answer:** No.
+
+
+### (iv) Table S1 - Recruitment
+
+`pioneer`: colonizers, common in pastures, open areas.
+
+Only smaller recruits (0.5 m ≤  height ≤ 2 m)
+
+```{r}
+recruitment_pioneer <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_recruitment_pioneers.xlsx"))
+
+recruitment_pioneer |>
+  dplyr::mutate(n_small = dplyr::if_else(is.na(n_small), 0, n_small))|>
+  group_by(tratamento, bloco, plantio) |>
+  dplyr::summarise(
+    total_n_small = sum(n_small, na.rm = TRUE),
+    n_small_pioneiras = sum(n_small[pioneer == TRUE], na.rm = TRUE),
+    prop_pioneiras = n_small_pioneiras / total_n_small,
+    .groups = "drop"
+  ) |>
+  #dplyr::group_by(tratamento,plantio)|>
+  dplyr::summarise(mean(prop_pioneiras),
+                   sd(prop_pioneiras)/sqrt(dplyr::n()))
+```
+
+Larger recruits (height > 1.5 m):
+
+```{r}
+recruitment_pioneer |>
+  dplyr::mutate(n_large = dplyr::if_else(is.na(n_large), 0, n_large))|>
+  group_by(tratamento, plantio, bloco) |>
+  dplyr::summarise(
+    total_n = sum(n_large, na.rm = TRUE),
+    n_pioneiras = sum(n_large[pioneer == TRUE], na.rm = TRUE),
+    prop_pioneiras = n_pioneiras / total_n,
+    .groups = "drop"
+  ) |>
+  #dplyr::group_by(tratamento,plantio)|>
+  dplyr::summarise(mean(prop_pioneiras),
+                   sd(prop_pioneiras)/sqrt(dplyr::n()),
+                   min(prop_pioneiras),
+                   max(prop_pioneiras))
+```
+
+
+
+```{r}
+density_recruits_n_m2 <- recruitment_pioneer |> 
+  dplyr::filter(ano == 2024) |>
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_small), 0, n_small),
+    n_large = dplyr::if_else(is.na(n_large), 0, n_large)) |>
+  dplyr::group_by(tratamento, bloco, plantio) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop")
+
+dens_ha <- density_recruits_n_m2 |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  )
+dens_CP_SP <- dens_ha |>
+  tidyr::pivot_wider(
+    names_from = plantio,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  )
+
+prop_table <- tidyr::tibble(
+  tratamento = unique(recruitment_pioneer$tratamento),
+  prop_CP = c(0.25, 0.25, 0.5, 0.5, 1),
+  prop_SP = 1 - prop_CP
+)
+
+
+result_regenerant <- dens_CP_SP |>
+  dplyr::left_join(prop_table, by = "tratamento") %>%
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_CP * prop_CP, 0)  + dplyr::coalesce(n_small_ha_SP * prop_SP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_CP * prop_CP, 0) + dplyr::coalesce(n_large_ha_SP * prop_SP, 0)
+  ) |>
+  dplyr::select(tratamento,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+```
+
+
+#### Smaller recruits
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_CP, na.rm=TRUE),1),
+    min = round(min(n_small_ha_CP, na.rm=TRUE),0),
+    max = round(max(n_small_ha_CP, na.rm=TRUE),0)
+  )
+```
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_SP, na.rm=TRUE),1),
+    min = round(min(n_small_ha_SP, na.rm=TRUE),0),
+    max = round(max(n_small_ha_SP, na.rm=TRUE),0)
+  )
+```
+
+
+In total
+
+ tratamento  .group
+ 100            1    
+ F25            1    
+ N25            1    
+ N50            1    
+ F50            1 
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
+    min = round(min(n_small_total_ha, na.rm=TRUE),0),
+    max = round(max(n_small_total_ha, na.rm=TRUE),0)
+  )
+```
+
+
+#### Larger recruits
+
+All treatments and inside/outside areas showed similar values
+
+Inside planted areas:
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_CP, na.rm=TRUE),1),
+    min = round(min(n_large_ha_CP, na.rm=TRUE),0),
+    max = round(max(n_large_ha_CP, na.rm=TRUE),0)
+  )
+```
+
+
+Outside planted areas:
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_SP, na.rm=TRUE),1),
+    min = round(min(n_large_ha_SP, na.rm=TRUE),0),
+    max = round(max(n_large_ha_SP, na.rm=TRUE),0)
+  )
+```
+
+
+
+Total:
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_total_ha, na.rm=TRUE), 1),
+    min = round(min(n_large_total_ha, na.rm=TRUE), 0),
+    max = round(max(n_large_total_ha, na.rm=TRUE), 0)
+  )
+```
+
+
+
+### (v) Figure Recruitment
+
+
+*Small letters*: Comparison between treatments, only inside planted areas. 
+
+*Capital letters*: Comparison between treatments, only outside planted areas.
+
+#### Smaller recruits
+
+```{r}
+data_fig_small <- result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_small_ha_CP, na.rm=TRUE), 1),
+    se_inside = round((sd(n_small_ha_CP, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_small_ha_SP, na.rm=TRUE), 1),
+    se_outside = round((sd(n_small_ha_SP, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -tratamento, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::mutate(
+    tratamento = ordered(tratamento,levels = ordem,
+                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
+   tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  ) |>
+  dplyr::filter(!is.na(se))
+```
+
+
+Inside planted areas
+
+plantio = CP:
+ tratamento .group
+ 100           1    
+ F25           12   
+ N25           12   
+ N50           2   
+ F50           2   
+
+Outside planted areas
+
+plantio = SP:
+ tratamento  .group
+ F25          1    
+ N50          1    
+ N25          1    
+ F50          1    
+ 100          NA     
+
+
+```{r, fig.width=3.54, fig.height=2.36}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(data_fig_small$tratamento)), each=2),
+  side = levels(as.factor(data_fig_small$side)),
+  label = c("AB     ","      a",
+            "AB     ","      a",
+            "B      ","      a",
+            "B      ","      a",
+            "A",""),  
+  y = c(5500, 5000, 
+        5500, 4500, 
+        7100, 4500, 
+        7100, 4500, 
+        3500, 6000)            
+)
+
+fig_small <- data_fig_small |>
+  ggplot(aes(x = tratamento, y = mean, fill = side)) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
+  scale_fill_manual(labels = c('Planted', 'Unplanted'), 
+                    values = c("#92D050", "white")) +
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,7900), breaks = seq(0,  7500, by=1500))+
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}~")"),
+       x = "") +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    legend.position = c(0.86, 0.98),
+    plot.margin = margin(t=5, l=2, r=2, 0, "mm"),
+    legend.text = element_text(size = 10, margin = margin(t=0,0,0,l=1, "mm")),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+fig_small
+# ggsave("fig_small_recruits.png", plot=fig_small, width=90, height = 90 ,unit="mm")
+```
+
+#### Larger recruits
+
+
+```{r}
+data_fig_large <-result_regenerant |>
+  dplyr::group_by(tratamento)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_large_ha_CP, na.rm=TRUE), 1),
+    se_inside = round((sd(n_large_ha_CP, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_large_ha_SP, na.rm=TRUE), 1),
+    se_outside = round((sd(n_large_ha_SP, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -tratamento, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::mutate(
+    tratamento = ordered(tratamento,levels = ordem,
+                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
+  tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  )|>
+  dplyr::filter(!is.na(se))
+```
+
+
+Inside and outside planted areas are similar
+
+```{r, fig.width=3.54, fig.height=2.36}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(data_fig_large$tratamento)), each=2),
+  side = levels(as.factor(data_fig_large$side)),
+  label = c("A      ","      a",
+            "A      ","      a",
+            "A      ","      a",
+            "A      ","      a",
+            "A",""),  
+  y = c(180, 470, 
+        180, 400, 
+        180, 200, 
+        180, 470, 
+        180, 400)            
+)
+
+fig_large <- data_fig_large |>
+  ggplot(aes(x = tratamento, y = mean, fill = side)) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
+  scale_fill_manual(labels = c('Planted', 'Unplanted'), values = c("#92D050", "white")) +
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}~")"),
+       x = "") +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    plot.margin = margin(t=5, l=2, r=2,0, "mm"),
+    legend.position = "none", # c(0.90, 0.95),
+    legend.text = element_text(size = 9, margin = margin(0,0,0,l=1, "mm")),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+fig_large
+# ggsave("fig_large_recruits.png", plot=fig_large, width=90, height = 60 ,unit="mm")
+```
+
+#### Altogether:
+
+
+```{r, fig.width=3.54, fig.height=4}
+fig_recruits <- cowplot::plot_grid(#fig_grass+theme(axis.text.x=element_blank()), 
+                                   fig_small + theme(axis.text.x=element_blank()), 
+                                   fig_large, 
+                                   ncol = 1,
+                                   labels = c("(a)", "(b)"), label_size = 10, label_x = 0.01, label_y = 1)
+fig_recruits
+ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
+```
+
+
+## D) Total AGB
+
+### (i)  Organizing data
+
+Estimation in Mg.ha-1
+
+576 = 12m x 12m x 4 plots
+
+```{r}
+AGB_data0 <- trees_clean |>
+  dplyr::group_by(ano, tratamento, bloco, plantio)|>
+  dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |> # writexl::write_xlsx("AGB_plot.xlsx")
+  dplyr::mutate(
+    AGB_Mgha = dplyr::case_when(
+      tratamento == "100" ~ (AGB_sum / 576) * 10000,
+      tratamento %in% c("F50", "N50") & plantio == "CP" ~ (AGB_sum / 576) * 5000,
+      tratamento %in% c("F50", "N50") & plantio == "SP" ~ (AGB_sum / 576) * 5000,
+      tratamento %in% c("F25", "N25") & plantio == "CP" ~ (AGB_sum / 576) * 2500,
+      tratamento %in% c("F25", "N25") & plantio == "SP" ~ (AGB_sum / 576) * 7500),
+    tratamento = ordered(tratamento, levels = ordem,
+                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%"))) 
+AGB_data <- AGB_data0 |> 
+  dplyr::group_by(ano, tratamento, bloco)|>
+  dplyr::summarise(AGB_Mgha = sum(AGB_Mgha), .groups = "drop") |>
+  dplyr::mutate(
+    Ano = ano-2021,
+    ANO = ordered(ano),
+    scaled_AGB = scale(AGB_Mgha))
+```
+
+
+
+### (ii) Analysing Total aboveground biomass per hectare
+
+Comparing models
+
+```{r}
+AGB_model0 <- lme4::lmer(scaled_AGB ~ 0 + (1|bloco), data = AGB_data)
+AGB_model1 <- lme4::lmer(scaled_AGB ~ Ano + (1|bloco), data = AGB_data)
+AGB_model2 <- lme4::lmer(scaled_AGB ~ Ano + bloco + (1|bloco), data = AGB_data) 
+AGB_model3 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + bloco + (1|bloco), data = AGB_data)   # consider rescaling
+AGB_model4 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + bloco + (1|bloco), data = AGB_data) # isSingular
+AGB_model5 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + (1|bloco), data = AGB_data)         # best model 
+AGB_model6 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_data) 
+AGB_model7 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1+Ano|bloco), data = AGB_data) # isSingular
+AIC(AGB_model0, AGB_model1, AGB_model2, AGB_model3, AGB_model4, AGB_model5,AGB_model6, AGB_model7 )
+```
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(AGB_model6)
+DHARMa::plotQQunif(AGB_model6)
+```
+
+One outlier
+
+Marginal $R^2$ / Conditional $R^2$
+
+```{r}
+MuMIn::r.squaredGLMM(AGB_model5) # without interaction 
+0.696/ 0.837
+MuMIn::r.squaredGLMM(AGB_model6) # with interaction
+0.702/ 0.842
+```
+
+0.702/ 0.842 - variance explained by fixed effects and by the entire model (around `r0.702/ 0.842` % is explained by fixed effects)
+
+```{r}
+car::Anova(AGB_model6)
+```
+
+interaction is no significant at all ($p-value \sim 0.33$)
+
+```{r}
+car::Anova(AGB_model5)
+```
+
+Assessing comparisons:
+
+```{r}
+emmeans::emmeans(AGB_model6, pairwise ~ tratamento | Ano) |> multcomp::cld()
+```
+
+```{r}
+emmeans::emtrends(AGB_model6, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
+```
+
+
+### (iii) AGB only inside
+
+Preparing data: 
+
+Comparison only inside plots over the years
+
+
+```{r}
+AGB_inside0 <- trees_clean |>
+  dplyr::group_by(ano, tratamento, bloco, parcela, plantio)|>
+  dplyr::summarise(
+    AGB_sum = sum(AGB_ferez, na.rm=T),
+    .groups = "drop") |>
+  dplyr::mutate(
+    tratamento = ordered(tratamento, levels = ordem),
+    Parcela = paste(tratamento, bloco, parcela, sep="_"),
+    Ano = ano-2021) |>
+  dplyr::filter(plantio == "CP")
+```
+
+View
+
+```{r}
+AGB_inside0 |>
+  ggplot(aes(x = factor(ano), y = log(AGB_sum),  group = Parcela, colour = parcela)) +
+  geom_point() +
+  geom_line()+facet_grid(bloco~tratamento)+
+  theme_minimal()
+```
+
+Plots with decreasing :
+
+```{r}
+deltas <- AGB_inside0 |>
+  dplyr::select(ano, Parcela, AGB_sum)|>
+  tidyr::pivot_wider(names_from = ano, names_prefix = "ano_", values_from = AGB_sum)|>
+  dplyr::mutate(delta_AGB = (ano_2024/ano_2022))|>
+  dplyr::arrange(delta_AGB) 
+deltas |> head(10)
+deltas |> tail(10)
+```
+
+
+How much % is planted or recruit in AGB?
+
+```{r}
+trees_clean |>
+  dplyr::filter(plantio == "CP") |>
+  #dplyr::filter(ano == 2024) |>
+  dplyr::group_by(ano, tratamento, bloco)|>
+  dplyr::summarise(
+    AGB_sum = sum(AGB_ferez, na.rm=T)/1000,
+    AGB_planted = sum(AGB_ferez[RP == "planted"], na.rm = TRUE)/1000,
+    prop_AGB_planted = (AGB_planted / AGB_sum)*100,
+    .groups = "drop") |>  #dplyr::group_by(tratamento,plantio)|>
+  dplyr::summarise(mean(prop_AGB_planted),
+                   sd(prop_AGB_planted)/sqrt(dplyr::n()))
+```
+
+
+Tratar os valores como `(1|bloco)`?
+
+```{r}
+AGB_inside <- trees_clean |>
+  dplyr::filter(plantio == "CP") |>
+  #dplyr::filter(ano == 2024) |>
+  dplyr::group_by(ano, tratamento, bloco)|>
+  dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |>
+  dplyr::mutate(
+    tratamento = ordered(tratamento, levels = ordem),
+    Ano = ano-2021,
+    ANO = ordered(ano),
+    scaled_AGB = scale(AGB_sum)) 
+```
+
+
+Comparing models
+
+```{r}
+AGB_inside_m0 <- lme4::lmer(scaled_AGB ~ 0 + (1|bloco), data = AGB_inside)
+AGB_inside_m1 <- lme4::lmer(scaled_AGB ~ Ano + (1|bloco), data = AGB_inside)
+AGB_inside_m2 <- lme4::lmer(scaled_AGB ~ Ano + bloco + (1|bloco), data = AGB_inside)   # best model 
+AGB_inside_m3 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + bloco + (1|bloco), data = AGB_inside)   
+AGB_inside_m4 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + bloco + (1|bloco), data = AGB_inside) 
+AGB_inside_m5 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + (1|bloco), data = AGB_inside)         
+AGB_inside_m6 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_inside) 
+AGB_inside_m7 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1+Ano|bloco), data = AGB_inside) # isSingular
+AIC(AGB_inside_m0, AGB_inside_m1, AGB_inside_m2, AGB_inside_m3, AGB_inside_m4,AGB_inside_m5, AGB_inside_m6, AGB_inside_m7)
+```
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(AGB_inside_m6)
+DHARMa::plotQQunif(AGB_inside_m6)
+```
+
+Marginal $R^2$ / Conditional $R^2$
+
+```{r}
+MuMIn::r.squaredGLMM(AGB_inside_m6)
+0.396/  0.6996
+```
+
+0.396/  0.6996 variance explained by fixed effects and by the entire model (around `r 0.396/  0.6996` % is explained by fixed effects)
+
+```{r}
+car::Anova(AGB_inside_m6)
+```
+
+interaction is no significant at all ($p-value \sim 0.85$)
+
+Assessing comparisons:
+
+```{r}
+emmeans::emmeans(AGB_inside_m6, pairwise ~ tratamento |Ano) |> multcomp::cld()
+```
+
+```{r}
+emmeans::emtrends(AGB_inside_m6, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
+```
+
+#### Table S1
+
+Only inside
+
+```{r}
+AGB_inside |> 
+  dplyr::group_by(ano, tratamento) |>
+  dplyr::summarise(
+    Mean = round(mean(AGB_sum),2),
+    SE = round(sd(AGB_sum)/sqrt(dplyr::n()), 2),
+    .groups="drop") |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
+  tidyr::pivot_wider(names_from = tratamento, values_from = values)
+```
+
+Increment per year:
+
+```{r}
+AGB_inside |>
+  dplyr::group_by(tratamento) |>
+  dplyr::summarise(
+    variacao_media = mean((AGB_sum[ano == 2024] - AGB_sum[ano == 2022])/2),
+    desvio_padrao = sd((AGB_sum[ano == 2024] - AGB_sum[ano == 2022])/2),
+    erro_padrao = sd((AGB_sum[ano == 2024] - AGB_sum[ano == 2022])/2) / sqrt(dplyr::n()),
+    min_variacao = min((AGB_sum[ano == 2024] - AGB_sum[ano == 2022])/2),
+    max_variacao = max((AGB_sum[ano == 2024] - AGB_sum[ano == 2022])/2),
+    .groups="drop")|>
+  dplyr::mutate(slope = paste(round(variacao_media,2), "pm", round(erro_padrao,2)))|>
+  dplyr::select(tratamento, slope)
+```
+
+Total Aboveground biomass
+
+```{r}
+tabS1_agb_total <- AGB_data |> 
+  dplyr::group_by(ano, tratamento)|>
+  dplyr::summarise(Mean = round(mean(AGB_Mgha),2),
+                   SE = round(sd(AGB_Mgha)/sqrt(dplyr::n()), 2),
+                   .groups="drop") 
+tabS1_agb_total |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
+  tidyr::pivot_wider(names_from = tratamento, values_from = values)
+
+```
+
+
+Increment per year:
+
+```{r}
+AGB_data |>
+  dplyr::group_by(tratamento) %>%
+  dplyr::summarise(
+    variacao_media = mean((AGB_Mgha[ano == 2024] - AGB_Mgha[ano == 2022])/2),
+    desvio_padrao = sd((AGB_Mgha[ano == 2024] - AGB_Mgha[ano == 2022])/2),
+    erro_padrao = sd((AGB_Mgha[ano == 2024] - AGB_Mgha[ano == 2022])/2) / sqrt(dplyr::n()),
+    min_variacao = min((AGB_Mgha[ano == 2024] - AGB_Mgha[ano == 2022])/2),
+    max_variacao = max((AGB_Mgha[ano == 2024] - AGB_Mgha[ano == 2022])/2),
+    .groups="drop")|>
+  dplyr::mutate(slope = paste(round(variacao_media,2), "pm", round(erro_padrao,2)))|>
+  dplyr::select(tratamento, slope)
+```
+
+
+#### Figure Biomass 
+
+Percentuals
+
+```{r}
+agb_plot_data <-AGB_data0 |> 
+  dplyr::group_by(ano, tratamento, plantio, bloco)|>
+  dplyr::summarise(
+    AGB_Mgha = sum(AGB_Mgha),
+    .groups = "drop") |>
+ dplyr::group_by(ano, tratamento, plantio)|>
+    dplyr::summarise(meanAGB = mean(AGB_Mgha),
+    sd = sd(AGB_Mgha),
+    n = dplyr::n(),
+    se = sd/sqrt(n),
+    .groups = "drop") |>
+  dplyr::mutate(
+    Ano = as.factor(ifelse(ano == 2022, "5", "7")),
+    Tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     ))
+max_year <- agb_plot_data |>
+  dplyr::group_by(ano, tratamento)|>
+  dplyr::summarise(meanAGB = max(meanAGB),.groups="drop")|>
+  dplyr::group_by(ano)|>
+  dplyr::summarise(max_year = max(meanAGB), .groups="drop")
+agb_plot_data |>
+  dplyr::group_by(ano, tratamento)|>
+  dplyr::summarise(meanAGB = max(meanAGB),.groups="drop")|>
+  dplyr::right_join(max_year, by="ano") |>
+  dplyr::mutate(porcentos = round( (meanAGB/max_year)*100, 0))
+```
+
+
+Plotting
+
+```{r, fig.width=3.54, fig.height=3.54}
+error_bars <- agb_plot_data |> 
+  arrange(Ano, Tratamento, desc(plantio)) |> 
+  group_by(Ano, Tratamento) |>
+  mutate(meanAGB_new = cumsum(meanAGB)) |>
+  ungroup()
+porcentos <- data.frame(
+  Ano = rep(c("5", "7"), each = 5),  
+  Tratamento = rep(unique(agb_plot_data$Tratamento), times = length(unique(agb_plot_data$Ano))),
+  meanAGB = c(8, 9, 12, 15, 27, 12, 17, 23, 25, 38),
+  label = c(c("17%","27%", "39%", "46%", "100%",
+              "21%", "34%", "52%", "53%", "100%"))
+  )
+text_data <- data.frame(
+  Ano = rep(c("5", "7"), each = 5),  
+  Tratamento = rep(unique(agb_plot_data$Tratamento), times = length(unique(agb_plot_data$Ano))),
+  meanAGB = c(10, 11, 14, 17, 29, 14, 19, 25, 27, 40),
+  label = c(c("a","a", "a", "a", "b",
+              "A", "AB", "B", "B", "C"))
+  )
+fig_biomass<-agb_plot_data |>
+  ggplot(aes(x = Ano, y = meanAGB, fill = plantio)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_errorbar(data=error_bars,
+                aes(ymin = meanAGB_new - se, ymax = meanAGB_new + se),
+                width = .3) +
+  scale_fill_manual(
+    labels = c('Planted', 'Unplanted'), 
+    values = c("#92D050", "white")
+    ) +
+  labs(fill = "", 
+       y =  expression("Total aboveground biomass (Mg.ha"^{-1} ~")"),
+       x = "") +
+  facet_grid(.~Tratamento, switch = "both")+
+  geom_text(data = text_data, aes(x = Ano, y = meanAGB, label = label), size = 3, color = "black", inherit.aes = FALSE) +
+  geom_text(data = porcentos, aes(x = Ano, y = meanAGB, label = label), size = 3, color = "black", inherit.aes = FALSE) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,43))+
+  ggthemes::theme_clean()+
+  theme(
+    #plot.margin = margin(b = 0, l = 0),
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(color="black", hjust = 1, size=10),
+    axis.text.y = element_text(color="black", size=9),
+    axis.title.y = element_text(color="black", size=11),
+    strip.text = element_text(color="black", hjust = 0.5, size=10),
+    panel.spacing = unit(0.1, "mm"),
+    strip.placement = "outside",
+    legend.text = element_text(size = 11),
+    legend.title = element_blank(),
+    legend.key.size = unit(3, "mm"),
+    legend.box.background = element_blank(),
+    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
+    legend.background = element_blank(), 
+    legend.margin = margin(0,0,0,0),
+    legend.position = c(0.18, 0.90)
+  )
+fig_biomass
+ggsave("fig_biomass.png", plot=fig_biomass, width=90, height = 90 ,unit="mm")
+```
+
+
+
+
+# II. Results - LiDAR 
+
+Canopy Height Metric (`CHM_mean`, `CHM_SD`, and `CHM_CV`), Canopy cover (`Canopy_cover`), Rugosity (`Rugosity_SD`, and `Rugosity_CV`), Leaf Area Index (`LAI_mean`, `LAI_SD`, and `LAI_CV`), and LAIunder (`LAIunder_mean`, `LAIunder_SD`, `LAIunder_CV`).
+
+### a) Canopy Height Model
+
+2022
+
+```{r}
+CHM2022 <- lidar_wide |>
+  dplyr::filter(ano==2022)|>
+  with(lme4::lmer(CHM_mean ~ Tratamento + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(CHM2022)
+DHARMa::plotQQunif(CHM2022)
+```
+
+
+2024
+
+
+```{r}
+CHM2024 <- lidar_wide |>
+  dplyr::filter(ano==2024)|>
+  with(lme4::lmer(CHM_mean ~ Tratamento + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(CHM2024)
+DHARMa::plotQQunif(CHM2024)
+```
+
+Together
+
+```{r}
+modeloCHM <- lidar_wide |>
+  with(lme4::lmer(CHM_mean ~ Tratamento*ano + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(modeloCHM)
+DHARMa::plotQQunif(modeloCHM)
+```
+
+Comparing estimated means
+
+```{r}
+emmeans::emmeans(modeloCHM, pairwise ~ Tratamento | ano) |> multcomp::cld()
+```
+
+Comparing estimated slopes
+
+
+```{r}
+emmeans::emtrends(modeloCHM, pairwise ~ Tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+
+Comparing fixed and random factors variance
+
+```{r}
+MuMIn::r.squaredGLMM(modeloCHM)
+0.7002626  /0.8728069
+```
+
+Resultados:
+
+A tendência da variação em torno da média de CHM foi a mesma ao longo do tempo entre os tratamentos (n.s.). As diferenças significativas ($p<0.001$) observadas entre o tratamento 100% planting em relação com os outros tratamentos em 2022 manteve-se em 2024.
+
+#### Table S1
+
+Values per year
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = round(mean(CHM_mean), 2),
+                   SD = round(sd(CHM_mean), 2)) |>
+  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
+  dplyr::select(-c(Mean, SD)) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+"Slope" (increment/year)
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(Tratamento)|>
+  dplyr::summarise(
+    variacao_media = round(mean((CHM_mean[ano == 2024] - CHM_mean[ano == 2022])/2),2),
+    desvio_padrao = round(sd((CHM_mean[ano == 2024] - CHM_mean[ano == 2022])/2), 2)
+  ) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
+  dplyr::select(Tratamento, values) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+
+### b) Canopy cover
+
+2022
+
+```{r}
+CC2022 <- lidar_wide |>
+  dplyr::filter(ano==2022)|>
+  with( glmmTMB::glmmTMB(Canopy_cover ~ Tratamento + (1|Bloco)) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(CC2022)
+DHARMa::plotQQunif(CC2022)
+```
+
+2024
+
+```{r}
+CC2024 <- lidar_wide |>
+  dplyr::filter(ano==2024)|>
+  with(lme4::lmer(Canopy_cover ~ Tratamento + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(CC2024)
+DHARMa::plotQQunif(CC2024)
+```
+
+models
+
+```{r}
+modeloCC <- lidar_wide |>
+  with(lme4::lmer(Canopy_cover ~ Tratamento*ano + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(modeloCC)
+DHARMa::plotQQunif(modeloCC)
+```
+
+1 outlier
+
+Estimated means
+
+```{r}
+emmeans::emmeans(modeloCC, pairwise ~ Tratamento | ano) |> multcomp::cld()
+```
+
+Estimated slopes
+
+```{r}
+emmeans::emtrends(modeloCC, pairwise ~ Tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+Comparing random and fixed effects
+
+```{r}
+MuMIn::r.squaredGLMM(modeloCC)
+0.469023 / 0.6387404
+```
+
+
+
+#### Table S1
+
+per year
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = round(mean(Canopy_cover), 2),
+                   SD = round(sd(Canopy_cover), 2),
+                   .groups = "drop") |>
+  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
+  dplyr::select(-c(Mean, SD)) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+"Slope" (increment/year)
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(Tratamento)|>
+  dplyr::summarise(
+    variacao_media = round(mean((Canopy_cover[ano == 2024] - Canopy_cover[ano == 2022])/2),2),
+    desvio_padrao = round(sd((Canopy_cover[ano == 2024] - Canopy_cover[ano == 2022])/2), 2),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
+  dplyr::select(Tratamento, values) 
+```
+
+### c) variance of Canopy cover
+
+Performing a pairwise comparison of variances is not as straightforward as comparing means, but you can use specific statistical techniques to compare variances between treatment groups. Here's how you can do this in R:
+
+```{r}
+pairwise_levene <- function(data, response, group) {
+  treatment_pairs <- combn(unique(data[[group]]), 2, simplify = FALSE)
+  p_values <- vector("list", length(treatment_pairs))
+  
+  for (i in seq_along(treatment_pairs)) { #i =1
+    subset_data <- data[data[[group]] %in% treatment_pairs[[i]], ]
+    test_result <- leveneTest(subset_data[[response]] ~ subset_data[[group]])
+    p_values[[i]] <- test_result[1, "Pr(>F)"]
+  }
+  
+  comparison <- sapply(treatment_pairs, function(x) paste(x, collapse = " vs "))
+  results <- data.frame(Comparison = comparison, P_Value = unlist(p_values))
+  results$Adjusted_P_Value <- p.adjust(results$P_Value, method = "bonferroni")
+  
+  return(results)
+}
+
+pairwise_levene(lidar2022_wide , "Canopy_cover", "Tratamento")
+pairwise_levene(lidar2024_wide , "Canopy_cover", "Tratamento")
+```
+
+
+#### Table S1 (Rugosity)
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = round(mean(Rugosity_SD),2),
+                   SD = round(sd(Rugosity_SD), 2),
+                   .groups="drop") |>
+  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
+  dplyr::select(-c(Mean, SD)) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+Increment/year
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(Tratamento)|>
+  dplyr::summarise(
+    variacao_media = round(mean((Rugosity_SD[ano == 2024] - Rugosity_SD[ano == 2022])/2),2),
+    erro_padrao = round(sd((Rugosity_SD[ano == 2024] - Rugosity_SD[ano == 2022])/2), 2),
+                   .groups="drop") |>
+  dplyr::mutate(values = paste(variacao_media, "pm", erro_padrao)) |>
+  dplyr::select(Tratamento, values) 
+```
+
+### d) LAI Mean
+
+2022
+
+```{r}
+LAI2022 <- lidar_wide |>
+  dplyr::filter(ano==2022) |>
+  with(lme4::lmer(LAI_mean ~ Tratamento + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(LAI2022)
+DHARMa::plotQQunif(LAI2022)
+```
+
+2024
+
+```{r}
+LAI2024 <- lidar_wide |>
+  dplyr::filter(ano==2024) |>
+  with(lme4::lmer(LAI_mean ~ Tratamento + (1|Bloco) ) )
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(LAI2024)
+DHARMa::plotQQunif(LAI2024)
+```
+
+Full model
+
+```{r}
+modeloLAI <- lidar_wide |>
+  with(lme4::lmer(LAI_mean ~ Tratamento * ano + (1 | Bloco)))
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(modeloLAI)
+DHARMa::plotQQunif(modeloLAI)
+```
+
+Pairwise comparison
+
+```{r}
+emmeans::emmeans(modeloLAI, pairwise ~ Tratamento | ano) |> multcomp::cld()
+```
+
+Trend:
+
+```{r}
+emmeans::emtrends(modeloLAI, pairwise ~ Tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+Fixed vs random
+
+```{r}
+MuMIn::r.squaredGLMM(modeloLAI)
+0.7064328 /0.8459851
+```
+
+
+#### Table S1
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = round(mean(LAI_mean),2),
+                   SD = round(sd(LAI_mean), 2), 
+                   .groups = "drop") |>
+  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
+  dplyr::select(-c(Mean, SD)) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+Increment/year (slope)
+
+```{r}
+lidar_wide |>
+  dplyr::group_by(Tratamento)|>
+  dplyr::summarise(
+    variacao_media = round(mean((LAI_mean[ano == 2024] - LAI_mean[ano == 2022])/2),2),
+    desvio_padrao = round(sd((LAI_mean[ano == 2024] - LAI_mean[ano == 2022])/2),2),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
+  dplyr::select(Tratamento, values) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
+```
+
+### e) Figure 1 - LiDAR
+
+#### (i) Canopy height model (CHM)
+
+```{r}
+max_year <- lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(CHM_mean),.groups="drop") |>
+  dplyr::group_by(ano)|>
+  dplyr::summarise(max_year = max(Mean),.groups="drop")
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(CHM_mean),.groups="drop") |>
+  dplyr::right_join(max_year, by="ano") |>
+  dplyr::mutate(porcentos = round( (Mean/max_year)*100, 0))
+```
+
+Plot
+
+
+```{r, fig.width=3.2}
+letras <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("A      ","       a",
+            "A      ","       a", 
+            "A      ","       b",
+            "A      ","       b",
+            "B      ","       c"),
+  y = c(2.8, 3.9, 
+        3.1, 4.5, 
+        3.9, 5.7, 
+        3.9, 5.7, 
+        5.9, 7.8)  )
+porcentos <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("39%          ","          39%",
+            "43%          ","          45%",
+            "61%          ","          67%",
+            "60%          ","          63%",
+            "100%           ","          100%"),  
+  y = c(2.2, 3.1, 
+        2.5, 3.7, 
+        3.3, 5, 
+        3.3, 5, 
+        5.3, 7.1)            
+)
+p1<- lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(CHM_mean),
+                   SD = sd(CHM_mean),
+                   SE = SD/dplyr::n(),
+                   .groups="drop") |>
+  ggplot( aes(x = Tratamento, y = Mean, fill = factor(ano))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, color="black", linewidth=0.5) +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
+                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  scale_fill_manual(
+    labels = c('5 years', '7 years'), 
+    values = c("lightblue", "darkblue")) +
+  geom_text(data = letras, aes(x = Tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
+  geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
+  labs(fill = "", 
+       y =  "Canopy height model (m)",
+       x = "") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 9), breaks = seq(0, 8, by = 1))+
+  theme_classic()+
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(color="black", size=9),
+        axis.title.y = element_text(color="black", size=10),
+        legend.position = c(0.15, 0.9),
+        legend.text = element_text(size = 10),
+        legend.key.size = unit(3, "mm"),
+        plot.margin = margin(t=5, 0, 0, 0, "mm"))
+p1
+```
+
+
+#### (ii) Canopy cover
+
+```{r}
+max_year <- lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(Canopy_cover),.groups="drop") |>
+  dplyr::group_by(ano)|>
+  dplyr::summarise(max_year = max(Mean),.groups="drop")
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(Canopy_cover),.groups="drop") |>
+  dplyr::right_join(max_year, by="ano") |>
+  dplyr::mutate(porcentos = round( (Mean/max_year)*100, 0))
+```
+
+plot
+
+```{r, fig.width=3.2}
+letras <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("A     ","       a",
+            "A     ","       a", 
+            "A     ","      ab",
+            "A     ","      ab",
+            "B     ","       b"),  
+  y = c(52, 77, 
+        40, 65, 
+        40, 85, 
+        45, 90, 
+        97, 109)            
+)
+porcentos <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("40%        ","          59%",
+            "30%        ","          46%",
+            "33%        ", "         74%",
+            "40%        ","          73%",
+            "100%         ","          100%"),  
+  y = c(42, 67, 
+        30, 55, 
+        30, 75, 
+        35, 80, 
+        87, 100)  
+)
+p2<- lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(Canopy_cover),
+                   SD = sd(Canopy_cover),
+                   SE = SD/dplyr::n(),
+                   .groups="drop") |>
+  ggplot(aes(x = Tratamento, y = Mean, fill = factor(ano))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, color="black", linewidth=0.5) +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
+                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  scale_fill_manual(
+    labels = c('5 years', '7 years'), 
+    values = c("lightblue", "darkblue")) +
+  geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
+    geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
+  labs(color = "", 
+       y =  "Canopy cover (%)",
+       x = "") +
+  scale_y_continuous(expand = c(0, 0), limits=c(0, 120), breaks = seq(0, 100, by = 20))+
+  theme_classic()+
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=10),
+    plot.margin = margin(t=5, 0, 0, 0, "mm"),
+    legend.position = 'none')
+p2
+```
+
+
+#### (iii) LAI
+
+```{r}
+max_year <- lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(LAI_mean),.groups="drop") |>
+  dplyr::group_by(ano)|>
+  dplyr::summarise(max_year = max(Mean),.groups="drop")
+lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(LAI_mean),.groups="drop") |>
+  dplyr::right_join(max_year, by="ano") |>
+  dplyr::mutate(porcentos = round( (Mean/max_year)*100, 0))
+```
+
+Plot
+
+```{r, fig.width=3.2}
+letras <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("A       ","       a",
+            "A       ","      ab",
+            "A       ", "      b",
+            "A       ","      ab",
+            "B       ","       c"),  
+  y = c( 0.8, 1.3, 
+         1.0, 1.5, 
+         1.1, 1.8, 
+         1.2, 1.75, 
+         2.0, 2.8)
+  ) |>
+  dplyr::mutate(
+    Tratamento = forcats::fct_recode(Tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  )
+
+porcentos <- data.frame(
+  Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
+  ano = c(2022, 2024),
+  label = c("29%          ","          37%",
+            "38%         ","          43%",
+            "50%         ","          57%",
+            "53%         ","          56%",
+            "100%           ","        100%"),  
+  y = c( 0.5, 1, 
+         0.7, 1.2, 
+         0.8, 1.5, 
+         0.95, 1.45, 
+         1.7, 2.5)
+  )|>
+  dplyr::mutate(
+    Tratamento = forcats::fct_recode(Tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  )
+p3<-lidar_wide |>
+  dplyr::group_by(ano, Tratamento)|>
+  dplyr::summarise(Mean = mean(LAI_mean),
+                   SD = sd(LAI_mean),
+                   SE = SD/dplyr::n(),
+                   .groups="drop") |>
+  dplyr::mutate(
+    Tratamento = forcats::fct_recode(Tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     )
+  )|>
+   ggplot(aes(x = Tratamento, y = Mean, fill = factor(ano))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
+                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  scale_fill_manual(
+    labels = c('5 years', '7 years'), 
+    values = c("lightblue", "darkblue")) +
+  geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
+  geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
+  labs(color = "Year", 
+       y =  expression("LAI (m"^{2} ~ "/ m"^{2}~ ")"),
+       x = "") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,3.2), breaks = seq(0, 3, by=1))+
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=10),
+    plot.margin = margin(t=5, 0, 0, 0, "mm"),
+    legend.position = 'none'    )
+p3
+```
+
+
+#### (iv) All together
+
+```{r, fig.height=8.26, fig.width=3.54}
+# 90 mm x 180 mm
+fig_lidar <- cowplot::plot_grid(p1,p2,p3, ncol = 1,
+       labels = c("(a)", "(b)", "(c)"), label_size = 10, label_x = 0.01, label_y = 1)
+fig_lidar
+ggsave("fig_lidar.png", plot=fig_lidar, width=90, height = 210 ,unit="mm")
+```
+
+**capital letters**: 5 years
+
+**small letters**: 7 years
+
+
+# III. Results - Costs
+
+
+## A) Cost per unit (Biomass and Canopy coverage)
+
+Table of Costs (in R$)
+
+```{r}
+costs <- data.frame(
+  tratamento = c("Planting 100%",	"Strips 50%",	"Nuclei 50%",	"Strips 25%",	"Nuclei 25%"),
+  labor_machinery =  c(7860.00, 6407.90, 7563.90, 5131.05, 6395.23),
+  inputs = c(7032.50, 4096.25, 4096.25, 2628.13, 2628.13)) |>
+  dplyr::mutate(total = labor_machinery + inputs)
+```
+
+
+### Using raw values
+
+```{r}
+cover_raw <- lidar_wide |> 
+  dplyr::select(ano, Bloco, Tratamento, Canopy_cover) |>
+  dplyr::rename(bloco = Bloco, tratamento = Tratamento) |>
+  dplyr::mutate(tratamento = ordered(tratamento, 
+                                     levels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
+                bloco = ordered(bloco, levels = c("BI","BII", "BIII", "BIV", "BV")),
+                bloco = as.character(as.numeric(bloco)))|>
+  dplyr::left_join(costs) |>
+  dplyr::mutate(totalUS = (total/5)/5.8)
+
+
+cost_raw <- AGB_data |> 
+  dplyr::select(ano, bloco, tratamento, AGB_Mgha) |> 
+  dplyr::right_join(cover_raw) |>
+  dplyr::mutate(agb_cost = totalUS/AGB_Mgha,
+                cc_cost = totalUS/Canopy_cover,
+                ano = ano-2017) |>
+  dplyr::select(ano:tratamento, agb_cost, cc_cost)
+```
+
+#### (i) Tests
+
+```{r}
+modeloCC <- lme4::lmer(log(cc_cost) ~ tratamento*ano + (1|bloco), data=cost_raw ) 
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(modeloCC)
+DHARMa::plotQQunif(modeloCC)
+emmeans::emmeans(modeloCC, pairwise ~ tratamento | ano) |> multcomp::cld()
+```
+
+
+```{r}
+modeloAGB <- lme4::lmer(log(agb_cost) ~ tratamento*ano + (1|bloco), data=cost_raw ) 
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(modeloAGB)
+DHARMa::plotQQunif(modeloAGB)
+emmeans::emmeans(modeloAGB, pairwise ~ tratamento | ano) |> multcomp::cld()
+```
+
+
+And the slopes?
+
+
+```{r}
+emmeans::emtrends(modeloAGB, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+
+```{r}
+emmeans::emtrends(modeloCC, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+
+#### (ii) Figure Cost-effectiveness
+
+```{r, fig.width=3.2, fig.height=4.3}
+fig_data_cost_raw <- cost_raw |>
+  dplyr::group_by(ano, tratamento)|>
+  dplyr::summarise(
+    cost_cc = mean(cc_cost),
+    SE_cc = sd(cc_cost)/sqrt(dplyr::n()),
+    cost_agb = mean(agb_cost),
+    SE_agb = sd(agb_cost)/sqrt(dplyr::n()), 
+    .groups="drop")|>
+  dplyr::mutate(tratamento = ordered(tratamento, levels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
+                tratamento = forcats::fct_recode(tratamento,
+                                     "Nuclei\n25%" = "Nuclei 25%",
+                                     "Strips\n25%" = "Strips 25%",
+                                     "Nuclei\n50%" = "Nuclei 50%",
+                                     "Strips\n50%" = "Strips 50%",
+                                     "Planting\n100%" = "Planting 100%"
+                                     ))
+```
+
+
+```{r, fig.width=3.2, fig.height=2.15}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(fig_data_cost_raw$tratamento)), each=2),
+  ano = c(5, 7),
+  label = c("B      ","        a",
+            "AB      ","       a", 
+            "AB      ","       a",
+            "AB      ","       a",
+            "A      ","       a"),
+  y = c(33, 16, 
+        18, 10, 
+        18, 8, 
+        18, 10, 
+        10, 6))
+fig_cost1 <- fig_data_cost_raw |>
+   ggplot( aes(x = tratamento, y = cost_cc, fill = factor(ano))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
+  geom_errorbar(aes(ymin = cost_cc - SE_cc, ymax = cost_cc + SE_cc),
+                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  scale_fill_manual(
+    labels = c('5 years', '7 years'), 
+    values = c("lightblue", "darkblue")) +
+  labs(fill = "", 
+       y = expression("CE Canopy cover (" * "\u0024" * ".%"^{-1} * ")"),
+       x = "") +
+  scale_y_continuous(expand=c(0,0), limits=c(0,38), breaks = c(0, 10,20, 30))+
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label),size = 4, color="black", vjust = -0.5) +
+  theme_classic()+
+  theme(
+    #panel.grid.major.y = element_blank(),
+    #panel.grid.major.x = element_blank(),
+    #panel.grid.minor = element_blank(),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.text.x = element_blank(),
+    legend.position = c(0.85, 0.95),
+    axis.line.x = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
+    axis.line.y = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
+    axis.title.y = element_text(color="black", size=10),
+    axis.text.y = element_text(color="black", size=9)
+    )
+fig_cost1
+```
+
+
+```{r, fig.width=3.2, fig.height=2.15}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(fig_data_cost_raw$tratamento)), each=2),
+  ano = c(5, 7),
+  label = c("B      ","       b",
+            "A      ","      a", 
+            "AB     ","     ab",
+            "A      ","     ab",
+            "A      ","      a"),
+  y = c(210, 100, 53, 25, 53, 30, 53, 33, 30, 20)            
+)
+fig_cost2 <- fig_data_cost_raw |>
+  ggplot( aes(x = tratamento, y = cost_agb, fill = factor(ano))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
+  geom_errorbar(aes(ymin = cost_agb - SE_agb, ymax = cost_agb + SE_agb),
+                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  scale_fill_manual(
+    labels = c('5 years', '7 years'), 
+    values = c("lightblue", "darkblue")) +
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
+  labs(fill = "", 
+       y = expression("CE AGB (" * "\u0024" * ".Mg"^{-1} * ")"),
+       x = "") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 240), breaks = c(0,50,100, 150, 200))+
+  theme_classic()+
+  theme(
+    #panel.grid.major.y = element_blank(),
+    #panel.grid.major.x = element_blank(),
+    #panel.grid.minor = element_blank(),
+    axis.line.x = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
+    axis.line.y = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.text.x = element_text(color="black", hjust = .5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    legend.position = 'none',
+    axis.title.y = element_text(color="black", size=10)
+    )
+fig_cost2
+```
+
+
+```{r, fig.width=3.2, fig.height=4.3}
+fig_cost <- cowplot::plot_grid(fig_cost1, fig_cost2, ncol = 1,
+                               labels = c("(a)", "(b)"), label_size = 8, label_x = 0.05, label_y = c(1,1.1))
+fig_cost
+ggsave("fig_cost.png", plot=fig_cost, width=90, height = 120 ,unit="mm")
+```
+
+
+#### (iii) Table Cost-effectiveness
+
+
+```{r}
+fig_data_cost_raw |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~ round(.x, 2))) 
+rm(list=ls())
+```
+
