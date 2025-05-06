@@ -33,7 +33,8 @@ version
 
 ```{r packages}
 if(!require(pacman)){install.packages("pacman")}
-pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", "car", "performance", "cowplot", "MuMIn")
+pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", 
+             "car", "performance", "cowplot", "MuMIn", "WorldFlora")
 pacman::p_load(pkg_list, character.only = TRUE)
 ```
 
@@ -394,28 +395,6 @@ regenerants_2024 <- recruitment |>
 ```
 
 
-#### List of recruitment species
-
-```{r}
-table_recruits <- trees_clean |>
-  dplyr::filter(RP!="planted") |>
-  dplyr::filter(ano == 2024) |>
-  dplyr::mutate(
-    tratamento = as.factor(tratamento),
-    tratamento = forcats::fct_recode(tratamento,
-                                     "Nuclei 25%" = "N25",
-                                     "Strips 25%" = "F25",
-                                     "Nuclei 50%" = "N50",
-                                     "Strips 50%" = "F50",
-                                     "Planting 100%" = "100")
-    ) |>
-    dplyr::group_by(tratamento, family, scientificName)|>
-  dplyr::summarise(n_large = dplyr::n(), .groups = "drop") |>
-  tidyr::pivot_wider(names_from = tratamento, values_from = n_large, values_fill = 0) |> 
-  dplyr::arrange(family, scientificName)
-table_recruits |> knitr::kable(format = "html")
-table_recruits  |> writexl::write_xlsx("Table Recruits.xlsx")
-```
 
 
 
@@ -968,6 +947,33 @@ fig_recruits <- cowplot::plot_grid(#fig_grass+theme(axis.text.x=element_blank())
                                    labels = c("(a)", "(b)"), label_size = 10, label_x = 0.01, label_y = 1)
 fig_recruits
 ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
+```
+
+### (vi) Species list table
+
+Recruits
+
+```{r}
+table_recruits <- readxl::read_xlsx("Itatinga_Nuc_recruitment_SpeciesList.xlsx") 
+table_recruits |> knitr::kable(format = "html")
+```
+
+Planted species
+
+```{r}
+planted_species <- readxl::read_xlsx("Itatinga_Species_nucleation.xlsx", sheet = "planted species") |>
+  dplyr::rename(scientificName = Species)
+planted_species |> knitr::kable(format = "html")
+```
+
+Altogether
+
+```{r}
+sampled_species <-readxl::read_xlsx("sampled_species2.xlsx")
+sampled_species |> 
+  dplyr::select(-`Seed dispersal`) |>
+  knitr::kable(format = "html")
+
 ```
 
 
