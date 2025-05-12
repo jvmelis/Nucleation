@@ -102,7 +102,7 @@ trees_clean |> dplyr::select(RP, family, scientificName) |>
 
 # I. Results - Field data
 
-## A) Survival of planted trees - ok
+## A) Survival of planted trees
 
 ### (i) Organizing data
 
@@ -131,10 +131,10 @@ survival_planted2024 <- trees_clean |> # 5416 stems
 24 seedlings per plot
 
 ```{r}
-mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv2 <- lme4::glmer(cbind(n, 24 - n) ~ bloco +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv3 <- lme4::glmer(cbind(n, 24 - n) ~ bloco+ +(1|bloco/parcela), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv_null <-lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco/parcela), data=survival_planted2024, family = binomial(link = "logit"))
+mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv2 <- lme4::glmer(cbind(n, 24 - n) ~ bloco +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv3 <- lme4::glmer(cbind(n, 24 - n) ~ bloco+ +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv_null <-lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco), data=survival_planted2024, family = binomial(link = "logit"))
 AIC(mod_surv1, mod_surv2, mod_surv3, mod_surv_null)
 ```
 
@@ -159,7 +159,7 @@ broom.mixed::tidy(mod_surv1) |> dplyr::mutate(dplyr::across(4:7, round, 3))
 summary(mod_surv1)
 ```
 
-Planted trees in treatment `F25` have `r round((1 - exp(-0.222))*100,2)`% *less* likely to survive (`OR=exp(-0.222)`) than in treatment `100%` ($p<0.1$)
+Planted trees in treatment `F25` have `r round((1 - exp(-0.224))*100,2)`% *less* likely to survive (`OR=exp(-0.224)`) than in treatment `100%` ($p<0.1$)
 
 Planted trees in treatment `N25` have `r  round((1 - exp(-0.548))*100,2)`% *less* likely to survive (`OR=exp(-0.548)`) than in treatment `100%` ($p<0.001$)
 
@@ -443,7 +443,7 @@ If a model is "singular", this means that some dimensions of the variance-covari
 
 Exploring residuals
 
-```{r}
+```{r, fig.width=10, fig.height=10}
 par(mfrow=c(2,2))
 DHARMa::plotResiduals(modelo_reg1)
 DHARMa::plotQQunif(modelo_reg1)
@@ -969,7 +969,7 @@ planted_species |> knitr::kable(format = "html")
 Altogether
 
 ```{r}
-sampled_species <-readxl::read_xlsx("sampled_species2.xlsx")
+sampled_species <-readxl::read_xlsx("sampled_species.xlsx")
 sampled_species |> 
   dplyr::select(-`Seed dispersal`) |>
   knitr::kable(format = "html")
@@ -1003,7 +1003,7 @@ AGB_data <- AGB_data0 |>
   dplyr::summarise(AGB_Mgha = sum(AGB_Mgha), .groups = "drop") |>
   dplyr::mutate(
     Ano = ano-2021,
-    ANO = ordered(ano),
+    ANO = factor(ano),
     scaled_AGB = scale(AGB_Mgha))
 ```
 
@@ -1015,13 +1015,13 @@ Comparing models
 
 ```{r}
 AGB_model0 <- lme4::lmer(scaled_AGB ~ 0 + (1|bloco), data = AGB_data)
-AGB_model1 <- lme4::lmer(scaled_AGB ~ Ano + (1|bloco), data = AGB_data)
-AGB_model2 <- lme4::lmer(scaled_AGB ~ Ano + bloco + (1|bloco), data = AGB_data) 
-AGB_model3 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + bloco + (1|bloco), data = AGB_data)   # consider rescaling
-AGB_model4 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + bloco + (1|bloco), data = AGB_data) # isSingular
-AGB_model5 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + (1|bloco), data = AGB_data)         # best model 
-AGB_model6 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_data) 
-AGB_model7 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1+Ano|bloco), data = AGB_data) # isSingular
+AGB_model1 <- lme4::lmer(scaled_AGB ~ ANO + (1|bloco), data = AGB_data)
+AGB_model2 <- lme4::lmer(scaled_AGB ~ ANO + bloco + (1|bloco), data = AGB_data) 
+AGB_model3 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + bloco + (1|bloco), data = AGB_data)   # consider rescaling
+AGB_model4 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + bloco + (1|bloco), data = AGB_data) # isSingular
+AGB_model5 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + (1|bloco), data = AGB_data)         # best model 
+AGB_model6 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1|bloco), data = AGB_data) 
+AGB_model7 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1+Ano|bloco), data = AGB_data) # isSingular
 AIC(AGB_model0, AGB_model1, AGB_model2, AGB_model3, AGB_model4, AGB_model5,AGB_model6, AGB_model7 )
 ```
 
@@ -1029,8 +1029,8 @@ Exploring residuals
 
 ```{r}
 par(mfrow=c(1,2))
-DHARMa::plotResiduals(AGB_model6)
-DHARMa::plotQQunif(AGB_model6)
+DHARMa::plotResiduals(AGB_model5)
+DHARMa::plotQQunif(AGB_model5)
 ```
 
 One outlier
@@ -1059,11 +1059,13 @@ car::Anova(AGB_model5)
 Assessing comparisons:
 
 ```{r}
-emmeans::emmeans(AGB_model6, pairwise ~ tratamento | Ano) |> multcomp::cld()
+emmeans::emmeans(AGB_model6, pairwise ~ tratamento | ANO) |> multcomp::cld()
 ```
 
 ```{r}
-emmeans::emtrends(AGB_model6, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
+AGB_model6a <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_data)
+AIC(AGB_model6a, AGB_model6)
+emmeans::emtrends(AGB_model6a, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
 ```
 
 
@@ -1147,13 +1149,13 @@ Comparing models
 
 ```{r}
 AGB_inside_m0 <- lme4::lmer(scaled_AGB ~ 0 + (1|bloco), data = AGB_inside)
-AGB_inside_m1 <- lme4::lmer(scaled_AGB ~ Ano + (1|bloco), data = AGB_inside)
-AGB_inside_m2 <- lme4::lmer(scaled_AGB ~ Ano + bloco + (1|bloco), data = AGB_inside)   # best model 
-AGB_inside_m3 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + bloco + (1|bloco), data = AGB_inside)   
-AGB_inside_m4 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + bloco + (1|bloco), data = AGB_inside) 
-AGB_inside_m5 <- lme4::lmer(scaled_AGB ~ tratamento + Ano + (1|bloco), data = AGB_inside)         
-AGB_inside_m6 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_inside) 
-AGB_inside_m7 <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1+Ano|bloco), data = AGB_inside) # isSingular
+AGB_inside_m1 <- lme4::lmer(scaled_AGB ~ ANO + (1|bloco), data = AGB_inside)
+AGB_inside_m2 <- lme4::lmer(scaled_AGB ~ ANO + bloco + (1|bloco), data = AGB_inside)   # best model 
+AGB_inside_m3 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + bloco + (1|bloco), data = AGB_inside)   
+AGB_inside_m4 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + bloco + (1|bloco), data = AGB_inside) 
+AGB_inside_m5 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + (1|bloco), data = AGB_inside)         
+AGB_inside_m6 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1|bloco), data = AGB_inside) 
+AGB_inside_m7 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1+Ano|bloco), data = AGB_inside) # isSingular
 AIC(AGB_inside_m0, AGB_inside_m1, AGB_inside_m2, AGB_inside_m3, AGB_inside_m4,AGB_inside_m5, AGB_inside_m6, AGB_inside_m7)
 ```
 
@@ -1183,12 +1185,111 @@ interaction is no significant at all ($p-value \sim 0.85$)
 Assessing comparisons:
 
 ```{r}
-emmeans::emmeans(AGB_inside_m6, pairwise ~ tratamento |Ano) |> multcomp::cld()
+emmeans::emmeans(AGB_inside_m6, pairwise ~ tratamento |ANO) |> multcomp::cld()
 ```
 
 ```{r}
-emmeans::emtrends(AGB_inside_m6, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
+AGB_inside_m6a <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_inside) 
+AIC(AGB_inside_m6a, AGB_inside_m6)
+emmeans::emtrends(AGB_inside_m6a, pairwise ~ tratamento, var = "Ano", poly.trend = TRUE) |> multcomp::cld()
 ```
+
+
+### (iv) AGB only outside (unplanted areas)
+
+Preparing data: 
+
+Comparison only outside plots over the years
+
+
+```{r}
+AGB_outside0 <- trees_clean |>
+  dplyr::group_by(ano, tratamento, bloco, parcela, plantio)|>
+  dplyr::summarise(
+    AGB_sum = sum(AGB_ferez, na.rm=T),
+    .groups = "drop") |>
+  dplyr::mutate(
+    tratamento = ordered(tratamento, levels = ordem),
+    Parcela = paste(tratamento, bloco, parcela, sep="_"),
+    Ano = ano-2021) |>
+  dplyr::filter(plantio == "SP")
+```
+
+View
+
+```{r}
+AGB_outside0 |>
+  ggplot(aes(x = factor(ano), y = log(AGB_sum),  group = Parcela, colour = parcela)) +
+  geom_point() +
+  geom_line()+facet_grid(bloco~tratamento)+
+  theme_minimal()
+```
+
+**it is a mess**
+
+
+
+Tratar os valores como `(1|bloco)`?
+
+```{r}
+AGB_outside <- trees_clean |>
+  dplyr::filter(plantio == "SP") |>
+  #dplyr::filter(ano == 2024) |>
+  dplyr::group_by(ano, tratamento, bloco)|>
+  dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |>
+  dplyr::mutate(
+    tratamento = ordered(tratamento, levels = ordem),
+    Ano = ano-2021,
+    ANO = ordered(ano),
+    scaled_AGB = scale(AGB_sum)) 
+```
+
+
+Comparing models
+
+```{r}
+AGB_outside_m0 <- lme4::lmer(scaled_AGB ~ 0 + (1|bloco), data = AGB_outside) # best model
+AGB_outside_m1 <- lme4::lmer(scaled_AGB ~ ANO + (1|bloco), data = AGB_outside)
+AGB_outside_m2 <- lme4::lmer(scaled_AGB ~ ANO + bloco + (1|bloco), data = AGB_outside)   # best model 
+AGB_outside_m3 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + bloco + (1|bloco), data = AGB_outside)   
+AGB_outside_m4 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + bloco + (1|bloco), data = AGB_outside) 
+AGB_outside_m5 <- lme4::lmer(scaled_AGB ~ tratamento + ANO + (1|bloco), data = AGB_outside)         
+AGB_outside_m6 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1|bloco), data = AGB_outside) 
+AGB_outside_m7 <- lme4::lmer(scaled_AGB ~ tratamento*ANO + (1+Ano|bloco), data = AGB_outside) # isSingular
+AIC(AGB_outside_m0, AGB_outside_m1, AGB_outside_m2, AGB_outside_m3, 
+    AGB_outside_m4,AGB_outside_m5, AGB_outside_m6, AGB_outside_m7)
+```
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(1,2))
+DHARMa::plotResiduals(AGB_outside_m1)
+DHARMa::plotQQunif(AGB_outside_m0)
+```
+
+Marginal $R^2$ / Conditional $R^2$
+
+```{r}
+MuMIn::r.squaredGLMM(AGB_outside_m1)
+0.1505529 /0.1714753
+```
+
+0.1505529 /0.1714753 variance explained by fixed effects and by the entire model (around `r 0.1505529 /0.1714753` % is explained by fixed effects)
+
+```{r}
+car::Anova(AGB_outside_m5)
+```
+
+interaction is no significant at all ($p-value \sim 0.85$)
+
+Assessing comparisons:
+
+```{r}
+emmeans::emmeans(AGB_outside_m6, pairwise ~ tratamento |ANO) |> multcomp::cld()
+```
+
+
 
 #### Table S1
 
@@ -1455,13 +1556,31 @@ lidar_wide |>
 
 ### b) Canopy cover
 
+```{r}
+lidar_wide |>
+  dplyr::group_by(ano)|>
+  dplyr::summarise(mean(Canopy_cover),
+                   min(Canopy_cover),
+                   max(Canopy_cover),
+                   sd(Canopy_cover))
+
+  
+```
+
 2022
 
 ```{r}
 CC2022 <- lidar_wide |>
   dplyr::filter(ano==2022)|>
   with( glmmTMB::glmmTMB(Canopy_cover ~ Tratamento + (1|Bloco)) )
-par(mfrow=c(1,2))
+CC2022a <- lidar_wide |>
+  dplyr::filter(ano==2022)|>
+  with(glmmTMB::glmmTMB(Canopy_cover/100 ~ Tratamento + (1 | Bloco),
+                        family = glmmTMB::beta_family()))
+AIC(CC2022, CC2022a)
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(CC2022a)
+DHARMa::plotQQunif(CC2022a)
 DHARMa::plotResiduals(CC2022)
 DHARMa::plotQQunif(CC2022)
 ```
@@ -1470,11 +1589,19 @@ DHARMa::plotQQunif(CC2022)
 
 ```{r}
 CC2024 <- lidar_wide |>
-  dplyr::filter(ano==2024)|>
+  dplyr::filter(ano==2024) |>
   with(lme4::lmer(Canopy_cover ~ Tratamento + (1|Bloco) ) )
-par(mfrow=c(1,2))
+CC2024a <- lidar_wide |>
+  dplyr::filter(ano==2024) |>
+  with(glmmTMB::glmmTMB(Canopy_cover/100 ~ Tratamento + (1 | Bloco),
+                        family = glmmTMB::beta_family()))
+AIC(CC2024, CC2024a)
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(CC2024a)
+DHARMa::plotQQunif(CC2024a)
 DHARMa::plotResiduals(CC2024)
 DHARMa::plotQQunif(CC2024)
+
 ```
 
 models
@@ -1482,9 +1609,15 @@ models
 ```{r}
 modeloCC <- lidar_wide |>
   with(lme4::lmer(Canopy_cover ~ Tratamento*ano + (1|Bloco) ) )
-par(mfrow=c(1,2))
+
+modeloCCa <- lidar_wide |>
+  with(glmmTMB::glmmTMB(Canopy_cover/100 ~ Tratamento*ano + (1 | Bloco),
+                        family = glmmTMB::beta_family()))
+par(mfrow=c(2,2))
 DHARMa::plotResiduals(modeloCC)
 DHARMa::plotQQunif(modeloCC)
+DHARMa::plotResiduals(modeloCCa)
+DHARMa::plotQQunif(modeloCCa)
 ```
 
 1 outlier
@@ -1734,7 +1867,7 @@ p1<- lidar_wide |>
                 width = .2, position = position_dodge(width = 1), linewidth=0.5) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
-    values = c("lightblue", "darkblue")) +
+    values = c("#CAF0F8", "#00B4D8")) +
   geom_text(data = letras, aes(x = Tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
   geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
   labs(fill = "", 
@@ -1811,7 +1944,7 @@ p2<- lidar_wide |>
                 width = .2, position = position_dodge(width = 1), linewidth=0.5) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
-    values = c("lightblue", "darkblue")) +
+    values = c("#CAF0F8", "#00B4D8")) +
   geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
     geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
   labs(color = "", 
@@ -1915,7 +2048,7 @@ p3<-lidar_wide |>
                 width = .2, position = position_dodge(width = 1), linewidth=0.5) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
-    values = c("lightblue", "darkblue")) +
+    values = c("#CAF0F8", "#00B4D8")) +
   geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
   geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
   labs(color = "Year", 
@@ -1937,8 +2070,9 @@ p3
 
 ```{r, fig.height=8.26, fig.width=3.54}
 # 90 mm x 180 mm
-fig_lidar <- cowplot::plot_grid(p1,p2,p3, ncol = 1,
+fig_lidar <- cowplot::plot_grid(p1,p2,p3, ncol = 1,align = "v", axis = "l",
        labels = c("(a)", "(b)", "(c)"), label_size = 10, label_x = 0.01, label_y = 1)
+
 fig_lidar
 ggsave("fig_lidar.png", plot=fig_lidar, width=90, height = 210 ,unit="mm")
 ```
@@ -2063,7 +2197,7 @@ fig_cost1 <- fig_data_cost_raw |>
                 width = .2, position = position_dodge(width = 1), linewidth=0.5) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
-    values = c("lightblue", "darkblue")) +
+    values = c("#CAF0F8", "#00B4D8")) +
   labs(fill = "", 
        y = expression("CE Canopy cover (" * "\u0024" * ".%"^{-1} * ")"),
        x = "") +
@@ -2104,7 +2238,7 @@ fig_cost2 <- fig_data_cost_raw |>
                 width = .2, position = position_dodge(width = 1), linewidth=0.5) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
-    values = c("lightblue", "darkblue")) +
+    values = c("#CAF0F8", "#00B4D8")) +
   geom_text(data = letras, aes(x = tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
   labs(fill = "", 
        y = expression("CE AGB (" * "\u0024" * ".Mg"^{-1} * ")"),
@@ -2112,9 +2246,6 @@ fig_cost2 <- fig_data_cost_raw |>
   scale_y_continuous(expand = c(0, 0), limits = c(0, 240), breaks = c(0,50,100, 150, 200))+
   theme_classic()+
   theme(
-    #panel.grid.major.y = element_blank(),
-    #panel.grid.major.x = element_blank(),
-    #panel.grid.minor = element_blank(),
     axis.line.x = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
     axis.line.y = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
@@ -2129,7 +2260,9 @@ fig_cost2
 
 ```{r, fig.width=3.2, fig.height=4.3}
 fig_cost <- cowplot::plot_grid(fig_cost1, fig_cost2, ncol = 1,
-                               labels = c("(a)", "(b)"), label_size = 8, label_x = 0.05, label_y = c(1,1.1))
+                               align = "v", axis = "l",
+                               labels = c("(a)", "(b)"), label_size = 8, 
+                               label_x = 0.05, label_y = c(1,1.1))
 fig_cost
 ggsave("fig_cost.png", plot=fig_cost, width=90, height = 120 ,unit="mm")
 ```
