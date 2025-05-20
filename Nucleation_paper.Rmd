@@ -969,7 +969,7 @@ planted_species |> knitr::kable(format = "html")
 Altogether
 
 ```{r}
-sampled_species <-readxl::read_xlsx("sampled_species.xlsx")
+sampled_species <-readxl::read_xlsx("itatinga_sampled_species.xlsx")
 sampled_species |> 
   dplyr::select(-`Seed dispersal`) |>
   knitr::kable(format = "html")
@@ -1533,9 +1533,9 @@ Values per year
 lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = round(mean(CHM_mean), 2),
-                   SD = round(sd(CHM_mean), 2)) |>
-  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
-  dplyr::select(-c(Mean, SD)) |>
+                   SE = round(sd(CHM_mean)/sqrt(dplyr::n()), 2)) |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
 
@@ -1543,12 +1543,21 @@ lidar_wide |>
 
 ```{r}
 lidar_wide |>
-  dplyr::group_by(Tratamento)|>
+  dplyr::group_by(Tratamento, ano) |>
   dplyr::summarise(
-    variacao_media = round(mean((CHM_mean[ano == 2024] - CHM_mean[ano == 2022])/2),2),
-    desvio_padrao = round(sd((CHM_mean[ano == 2024] - CHM_mean[ano == 2022])/2), 2)
+    media = mean(CHM_mean, na.rm = TRUE),
+    se = sd(CHM_mean, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop"
   ) |>
-  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
+  tidyr::pivot_wider(
+    names_from = ano,
+    values_from = c(media, se),
+    names_sep = "_"
+  ) |>
+  dplyr::mutate(
+    variacao_media = round((media_2024 - media_2022) / 2, 2),
+    SE_variacao = round(sqrt(se_2022^2 + se_2024^2) / 2, 2)) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", SE_variacao)) |>
   dplyr::select(Tratamento, values) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
@@ -1651,10 +1660,10 @@ per year
 lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = round(mean(Canopy_cover), 2),
-                   SD = round(sd(Canopy_cover), 2),
+                   SE = round((sd(Canopy_cover)/sqrt(dplyr::n())), 2),
                    .groups = "drop") |>
-  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
-  dplyr::select(-c(Mean, SD)) |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
 
@@ -1662,15 +1671,25 @@ lidar_wide |>
 
 ```{r}
 lidar_wide |>
-  dplyr::group_by(Tratamento)|>
+  dplyr::group_by(Tratamento, ano) |>
   dplyr::summarise(
-    variacao_media = round(mean((Canopy_cover[ano == 2024] - Canopy_cover[ano == 2022])/2),2),
-    desvio_padrao = round(sd((Canopy_cover[ano == 2024] - Canopy_cover[ano == 2022])/2), 2),
+    media = mean(Canopy_cover, na.rm = TRUE),
+    se = sd(Canopy_cover, na.rm = TRUE) / sqrt(dplyr::n()),
     .groups = "drop"
   ) |>
-  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
-  dplyr::select(Tratamento, values) 
+  tidyr::pivot_wider(
+    names_from = ano,
+    values_from = c(media, se),
+    names_sep = "_"
+  ) |>
+  dplyr::mutate(
+    variacao_media = round((media_2024 - media_2022) / 2, 2),
+    SE_variacao = round(sqrt(se_2022^2 + se_2024^2) / 2, 2)) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", SE_variacao)) |>
+  dplyr::select(Tratamento, values) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
+
 
 ### c) variance of Canopy cover
 
@@ -1705,10 +1724,10 @@ pairwise_levene(lidar2024_wide , "Canopy_cover", "Tratamento")
 lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = round(mean(Rugosity_SD),2),
-                   SD = round(sd(Rugosity_SD), 2),
+                   SE = round((sd(Rugosity_SD)/sqrt(dplyr::n())), 2),
                    .groups="drop") |>
-  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
-  dplyr::select(-c(Mean, SD)) |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
 
@@ -1716,13 +1735,23 @@ Increment/year
 
 ```{r}
 lidar_wide |>
-  dplyr::group_by(Tratamento)|>
+  dplyr::group_by(Tratamento, ano) |>
   dplyr::summarise(
-    variacao_media = round(mean((Rugosity_SD[ano == 2024] - Rugosity_SD[ano == 2022])/2),2),
-    erro_padrao = round(sd((Rugosity_SD[ano == 2024] - Rugosity_SD[ano == 2022])/2), 2),
-                   .groups="drop") |>
-  dplyr::mutate(values = paste(variacao_media, "pm", erro_padrao)) |>
-  dplyr::select(Tratamento, values) 
+    media = mean(Rugosity_SD, na.rm = TRUE),
+    se = sd(Rugosity_SD, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop"
+  ) |>
+  tidyr::pivot_wider(
+    names_from = ano,
+    values_from = c(media, se),
+    names_sep = "_"
+  ) |>
+  dplyr::mutate(
+    variacao_media = round((media_2024 - media_2022) / 2, 2),
+    SE_variacao = round(sqrt(se_2022^2 + se_2024^2) / 2, 2)) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", SE_variacao)) |>
+  dplyr::select(Tratamento, values) |>
+  tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
 
 ### d) LAI Mean
@@ -1785,10 +1814,10 @@ MuMIn::r.squaredGLMM(modeloLAI)
 lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = round(mean(LAI_mean),2),
-                   SD = round(sd(LAI_mean), 2), 
+                   SE = round((sd(LAI_mean)/sqrt(dplyr::n())), 2), 
                    .groups = "drop") |>
-  dplyr::mutate(values = paste(Mean, "pm", SD)) |>
-  dplyr::select(-c(Mean, SD)) |>
+  dplyr::mutate(values = paste(Mean, "pm", SE)) |>
+  dplyr::select(-c(Mean, SE)) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
 
@@ -1796,16 +1825,25 @@ Increment/year (slope)
 
 ```{r}
 lidar_wide |>
-  dplyr::group_by(Tratamento)|>
+  dplyr::group_by(Tratamento, ano) |>
   dplyr::summarise(
-    variacao_media = round(mean((LAI_mean[ano == 2024] - LAI_mean[ano == 2022])/2),2),
-    desvio_padrao = round(sd((LAI_mean[ano == 2024] - LAI_mean[ano == 2022])/2),2),
+    media = mean(LAI_mean, na.rm = TRUE),
+    se = sd(LAI_mean, na.rm = TRUE) / sqrt(dplyr::n()),
     .groups = "drop"
   ) |>
-  dplyr::mutate(values = paste(variacao_media, "pm", desvio_padrao)) |>
+  tidyr::pivot_wider(
+    names_from = ano,
+    values_from = c(media, se),
+    names_sep = "_"
+  ) |>
+  dplyr::mutate(
+    variacao_media = round((media_2024 - media_2022) / 2, 2),
+    SE_variacao = round(sqrt(se_2022^2 + se_2024^2) / 2, 2)) |>
+  dplyr::mutate(values = paste(variacao_media, "pm", SE_variacao)) |>
   dplyr::select(Tratamento, values) |>
   tidyr::pivot_wider(names_from = Tratamento, values_from = values)
 ```
+
 
 ### e) Figure 1 - LiDAR
 
@@ -1827,7 +1865,7 @@ lidar_wide |>
 Plot
 
 
-```{r, fig.width=3.2}
+```{r fig5a, fig.width=3.2}
 letras <- data.frame(
   Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
   ano = c(2022, 2024),
@@ -1844,46 +1882,48 @@ letras <- data.frame(
 porcentos <- data.frame(
   Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
   ano = c(2022, 2024),
-  label = c("39%          ","          39%",
-            "43%          ","          45%",
-            "61%          ","          67%",
-            "60%          ","          63%",
-            "100%           ","          100%"),  
+  label = c("39%        ","          39%",
+            "43%        ","          45%",
+            "61%        ","          67%",
+            "60%        ","          63%",
+            "100%         ","          100%"),  
   y = c(2.2, 3.1, 
         2.5, 3.7, 
         3.3, 5, 
         3.3, 5, 
         5.3, 7.1)            
 )
-p1<- lidar_wide |>
+p1 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(CHM_mean),
                    SD = sd(CHM_mean),
                    SE = SD/dplyr::n(),
                    .groups="drop") |>
-  ggplot( aes(x = Tratamento, y = Mean, fill = factor(ano))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, color="black", linewidth=0.5) +
-  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
-                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  ggplot(aes(x = Tratamento, y = Mean, fill = as.factor(ano))) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = .2, position = position_dodge(0.9)) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
     values = c("#CAF0F8", "#00B4D8")) +
   geom_text(data = letras, aes(x = Tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
   geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 9), breaks = seq(0, 8, by = 1))+
   labs(fill = "", 
        y =  "Canopy height model (m)",
        x = "") +
-  scale_y_continuous(expand = c(0, 0), limits = c(0, 9), breaks = seq(0, 8, by = 1))+
   theme_classic()+
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_text(color="black", size=9),
-        axis.title.y = element_text(color="black", size=10),
-        legend.position = c(0.15, 0.9),
-        legend.text = element_text(size = 10),
-        legend.key.size = unit(3, "mm"),
-        plot.margin = margin(t=5, 0, 0, 0, "mm"))
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(color="black", size=9),
+      axis.title.y = element_text(color="black", size=10),
+      legend.position = c(0.15, 0.9),
+      legend.text = element_text(size = 10),
+      legend.key.size = unit(3, "mm"),
+      plot.margin = margin(t=5, 0, 0, 0, "mm"))
 p1
 ```
+
 
 
 #### (ii) Canopy cover
@@ -1903,7 +1943,7 @@ lidar_wide |>
 
 plot
 
-```{r, fig.width=3.2}
+```{r fig5b, fig.width=3.2}
 letras <- data.frame(
   Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
   ano = c(2022, 2024),
@@ -1932,27 +1972,27 @@ porcentos <- data.frame(
         35, 80, 
         87, 100)  
 )
-p2<- lidar_wide |>
+p2 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(Canopy_cover),
                    SD = sd(Canopy_cover),
                    SE = SD/dplyr::n(),
                    .groups="drop") |>
-  ggplot(aes(x = Tratamento, y = Mean, fill = factor(ano))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, color="black", linewidth=0.5) +
-  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
-                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  ggplot(aes(x = Tratamento, y = Mean, fill = as.factor(ano))) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = .2, position = position_dodge(0.9)) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
     values = c("#CAF0F8", "#00B4D8")) +
-  geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
-    geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
-  labs(color = "", 
+  geom_text(data = letras, aes(x = Tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
+  geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
+    scale_y_continuous(expand = c(0, 0), limits=c(0, 120), breaks = seq(0, 100, by = 20))+
+  labs(fill = "", 
        y =  "Canopy cover (%)",
        x = "") +
-  scale_y_continuous(expand = c(0, 0), limits=c(0, 120), breaks = seq(0, 100, by = 20))+
   theme_classic()+
-  theme(
+    theme(
     axis.text.x = element_blank(),
     axis.text.y = element_text(color="black", size=10),
     axis.title.y = element_text(color="black", size=10),
@@ -1979,7 +2019,7 @@ lidar_wide |>
 
 Plot
 
-```{r, fig.width=3.2}
+```{r fig5c, fig.width=3.2}
 letras <- data.frame(
   Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
   ano = c(2022, 2024),
@@ -2007,11 +2047,11 @@ letras <- data.frame(
 porcentos <- data.frame(
   Tratamento = rep(levels(as.factor(lidar_wide$Tratamento)),each=2),
   ano = c(2022, 2024),
-  label = c("29%          ","          37%",
-            "38%         ","          43%",
-            "50%         ","          57%",
-            "53%         ","          56%",
-            "100%           ","        100%"),  
+  label = c("29%        ","          37%",
+            "38%       ","          43%",
+            "50%       ","          57%",
+            "53%       ","          56%",
+            "100%          ","        100%"),  
   y = c( 0.5, 1, 
          0.7, 1.2, 
          0.8, 1.5, 
@@ -2027,7 +2067,8 @@ porcentos <- data.frame(
                                      "Planting\n100%" = "Planting 100%"
                                      )
   )
-p3<-lidar_wide |>
+
+p3 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(LAI_mean),
                    SD = sd(LAI_mean),
@@ -2039,36 +2080,35 @@ p3<-lidar_wide |>
                                      "Strips\n25%" = "Strips 25%",
                                      "Nuclei\n50%" = "Nuclei 50%",
                                      "Strips\n50%" = "Strips 50%",
-                                     "Planting\n100%" = "Planting 100%"
-                                     )
-  )|>
-   ggplot(aes(x = Tratamento, y = Mean, fill = factor(ano))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
-  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE),
-                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+                                     "Planting\n100%" = "Planting 100%"))|>
+  ggplot(aes(x = Tratamento, y = Mean, fill = as.factor(ano))) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = .2, position = position_dodge(0.9)) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
     values = c("#CAF0F8", "#00B4D8")) +
-  geom_text(data = letras, aes(x = Tratamento, y = y, label = label), color="black", vjust = -0.5, size=3.5) +
+  geom_text(data = letras, aes(x = Tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
   geom_text(data = porcentos, aes(x = Tratamento, y = y, label = label),size = 3, color="black", vjust = -0.5) +
-  labs(color = "Year", 
+  scale_y_continuous(expand = c(0, 0), limits = c(0,3.2), breaks = seq(0, 3, by=1))+
+  labs(fill = "", 
        y =  expression("LAI (m"^{2} ~ "/ m"^{2}~ ")"),
        x = "") +
-  scale_y_continuous(expand = c(0, 0), limits = c(0,3.2), breaks = seq(0, 3, by=1))+
   theme_classic()+
   theme(
     axis.text.x = element_text(color="black", hjust = 0.5, size=10),
     axis.text.y = element_text(color="black", size=10),
     axis.title.y = element_text(color="black", size=10),
     plot.margin = margin(t=5, 0, 0, 0, "mm"),
-    legend.position = 'none'    )
+    legend.position = 'none')
+
 p3
 ```
 
 
 #### (iv) All together
 
-```{r, fig.height=8.26, fig.width=3.54}
+```{r fig5, fig.height=8.26, fig.width=3.54}
 # 90 mm x 180 mm
 fig_lidar <- cowplot::plot_grid(p1,p2,p3, ncol = 1,align = "v", axis = "l",
        labels = c("(a)", "(b)", "(c)"), label_size = 10, label_x = 0.01, label_y = 1)
@@ -2190,32 +2230,28 @@ letras <- data.frame(
         18, 8, 
         18, 10, 
         10, 6))
+
 fig_cost1 <- fig_data_cost_raw |>
-   ggplot( aes(x = tratamento, y = cost_cc, fill = factor(ano))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
-  geom_errorbar(aes(ymin = cost_cc - SE_cc, ymax = cost_cc + SE_cc),
-                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  ggplot(aes(x = tratamento, y = cost_cc, fill = as.factor(ano))) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = cost_cc - SE_cc, ymax = cost_cc + SE_cc), width = .2, position = position_dodge(0.9)) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
     values = c("#CAF0F8", "#00B4D8")) +
-  labs(fill = "", 
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size = 3.5, color="black", vjust = -0.5) +
+  scale_y_continuous(expand=c(0,0), limits=c(0,38), breaks = c(0, 10,20, 30))+
+  labs(fill = "",
        y = expression("CE Canopy cover (" * "\u0024" * ".%"^{-1} * ")"),
        x = "") +
-  scale_y_continuous(expand=c(0,0), limits=c(0,38), breaks = c(0, 10,20, 30))+
-  geom_text(data = letras, aes(x = tratamento, y = y, label = label),size = 4, color="black", vjust = -0.5) +
   theme_classic()+
-  theme(
-    #panel.grid.major.y = element_blank(),
-    #panel.grid.major.x = element_blank(),
-    #panel.grid.minor = element_blank(),
-    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    theme(
     axis.text.x = element_blank(),
-    legend.position = c(0.85, 0.95),
-    axis.line.x = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
-    axis.line.y = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
+    axis.text.y = element_text(color="black", size=10),
     axis.title.y = element_text(color="black", size=10),
-    axis.text.y = element_text(color="black", size=9)
-    )
+    plot.margin = margin(t=5, 0, 0, 0, "mm"),
+    legend.position = c(0.85, 0.95))
+
 fig_cost1
 ```
 
@@ -2224,36 +2260,38 @@ fig_cost1
 letras <- data.frame(
   tratamento = rep(levels(as.factor(fig_data_cost_raw$tratamento)), each=2),
   ano = c(5, 7),
-  label = c("B      ","       b",
-            "A      ","      a", 
-            "AB     ","     ab",
-            "A      ","     ab",
-            "A      ","      a"),
+  label = c("B     ","       b",
+            "A     ","      a", 
+            "AB    ","     ab",
+            "A     ","     ab",
+            "A     ","      a"),
   y = c(210, 100, 53, 25, 53, 30, 53, 33, 30, 20)            
 )
+
+
 fig_cost2 <- fig_data_cost_raw |>
-  ggplot( aes(x = tratamento, y = cost_agb, fill = factor(ano))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 1), size=1, linewidth=0.5, color="black") +
-  geom_errorbar(aes(ymin = cost_agb - SE_agb, ymax = cost_agb + SE_agb),
-                width = .2, position = position_dodge(width = 1), linewidth=0.5) +
+  ggplot(aes(x = tratamento, y = cost_agb, fill = as.factor(ano))) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = cost_agb - SE_agb, ymax = cost_agb + SE_agb), 
+                width = .2, position = position_dodge(0.9)) +
   scale_fill_manual(
     labels = c('5 years', '7 years'), 
     values = c("#CAF0F8", "#00B4D8")) +
-  geom_text(data = letras, aes(x = tratamento, y = y, label = label),size = 3.5, color="black", vjust = -0.5) +
-  labs(fill = "", 
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size = 3.5, color="black", vjust = -0.5) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 240), breaks = c(0,50,100, 150, 200))+
+  labs(fill = "",
        y = expression("CE AGB (" * "\u0024" * ".Mg"^{-1} * ")"),
        x = "") +
-  scale_y_continuous(expand = c(0, 0), limits = c(0, 240), breaks = c(0,50,100, 150, 200))+
   theme_classic()+
-  theme(
+    theme(
     axis.line.x = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
     axis.line.y = element_line(color = "black", linewidth = 0.8, linetype = "solid"),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.text.x = element_text(color="black", hjust = .5, size=10),
     axis.text.y = element_text(color="black", size=10),
     legend.position = 'none',
-    axis.title.y = element_text(color="black", size=10)
-    )
+    axis.title.y = element_text(color="black", size=10))
 fig_cost2
 ```
 
