@@ -1010,7 +1010,7 @@ ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
 
 ### (vi) Species list table
 
-Recruits
+Only recruits (not including planted individuals)
 
 ```{r}
 table_recruits <- readxl::read_xlsx("Itatinga_Nuc_recruitment_SpeciesList.xlsx") 
@@ -1037,12 +1037,14 @@ sampled_species |>
 
 ## D) Species Richness of recruits
 
+Only recruits (smaller and larger), not including planted individuals
+
 ```{r}
 species_table <- readxl::read_xlsx("itatinga_Nuc_regen_species_abundance.xlsx")
 table(species_table$Treatment)
 ```
 
-Summarising
+#### (i) Summarising
 
 ```{r}
 dados_list <- species_table |>
@@ -1070,7 +1072,7 @@ species_table|>
 
 
 ```{r}
-prop_regenerant <- species_table |>
+prop_regenerant_full <- species_table |>
   dplyr::mutate(
     planted_tree = ifelse(`Planting group`=="NA", "No", "Yes"),
     biotic_fruit = ifelse(`Seed dispersal`=="biotic", "Yes", "No"))|>
@@ -1081,15 +1083,109 @@ prop_regenerant <- species_table |>
     n_planted_trees = sum(ifelse(planted_tree == "Yes", n_total, 0), na.rm = TRUE),
     n_planted_spp = sum(planted_tree == "Yes"), 
     n_biotic_trees  = sum(ifelse(biotic_fruit == "Yes", n_total, 0), na.rm = TRUE),
-    n_biotic_species  = sum(biotic_fruit == "Yes"),
+    n_biotic_spp  = sum(biotic_fruit == "Yes"),
+    n_biotic_spp = ifelse(is.na(n_biotic_spp), 0, n_biotic_spp),
+    n_biotic_trees = ifelse(is.na(n_biotic_trees), 0, n_biotic_trees),
+    n_planted_spp = ifelse(is.na(n_planted_spp), 0, n_planted_spp),
+    n_planted_trees = ifelse(is.na(n_planted_trees), 0, n_planted_trees),
     .groups = "drop") |>
   dplyr::mutate(
     prop_planted = n_planted_trees / n_ind,
     prop_planted_spp = n_planted_spp / n_species,
     
     prop_biotic  = n_biotic_trees  / n_ind,
-    prop_biotic_spp  = n_biotic_species  / n_species
-  ) |>
+    prop_biotic_spp  = n_biotic_spp  / n_species
+  )
+```
+
+#### (ii) Statistical analysis for the proportions
+
+
+*Propotion of individuals with biotic seed dispersal*
+
+```{r}
+mod_binomial <-lme4::glmer(
+  cbind(n_biotic_trees, n_ind - n_biotic_trees) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_full
+)
+performance::check_overdispersion(mod_binomial)
+DHARMa::plotResiduals(mod_binomial)
+summary(mod_binomial)
+emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+```
+
+
+*Propotion of species with biotic seed dispersal*
+
+```{r}
+mod_binomial <-lme4::glmer(
+  cbind(n_biotic_spp, n_species - n_biotic_spp) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_full
+)
+performance::check_overdispersion(mod_binomial)
+```
+
+Overdispersion, then, Beta Binomial
+
+```{r}
+mod_betabinomial<-glmmTMB::glmmTMB(
+  cbind(n_biotic_spp, n_species - n_biotic_spp) ~ Treatment*Planted + (1 | Block),
+  family = glmmTMB::betabinomial(),
+  data = prop_regenerant_full
+)
+performance::check_overdispersion(mod_betabinomial)
+
+DHARMa::plotResiduals(mod_betabinomial)
+summary(mod_betabinomial)
+
+sjPlot::tab_model(mod_betabinomial)
+```
+
+
+
+
+
+*Propotion of individuals from planted species*
+
+```{r}
+mod_binomial <-lme4::glmer(
+  cbind(n_planted_trees, n_ind - n_planted_trees) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_full
+)
+performance::check_overdispersion(mod_binomial) # heterokedasticity
+DHARMa::plotResiduals(mod_binomial)
+summary(mod_binomial)
+emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+```
+
+
+*Propotion of planted species*
+
+```{r}
+mod_binomial <-lme4::glmer(
+  cbind(n_planted_spp, n_species - n_planted_spp) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_full
+)
+performance::check_overdispersion(mod_binomial)
+DHARMa::plotResiduals(mod_binomial)
+summary(mod_binomial)
+
+sjPlot::tab_model(mod_binomial)
+```
+
+
+
+
+
+
+Summary of these proportions:
+
+```{r}
+prop_regenerant <-prop_regenerant_full |>
   dplyr::group_by(Treatment, Planted) |>
   dplyr::summarise(
     prop_planted_mean = mean(prop_planted, na.rm = TRUE),
@@ -1125,9 +1221,11 @@ summary_species <- estimativas |>
 # summary_species |> writexl::write_xlsx("resulta_diversidade_nuc.xlsx")
 ```
 
-Plot
+#### (iii) Figure Recruits' species richness
 
-```{r}
+For Hill q = 0
+
+```{r, fig.height=8.26, fig.width=3.54}
 curvas_df <- res_inext$iNextEst |>
   dplyr::bind_rows()|>
   tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
@@ -1140,10 +1238,7 @@ curvas_df0 <-curvas_df|> dplyr::filter(Order.q==0)|>
     Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
   ) |>
   dplyr::slice_head(n=350)
-```
 
-
-```{r, fig.height=8.26, fig.width=3.54}
 fig_recruit_rich<-curvas_df0 |>
   ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
   geom_line(linewidth = 1) +
@@ -1191,10 +1286,129 @@ fig_recruit_rich<-curvas_df0 |>
   )
 fig_recruit_rich
 ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
-
 ```
 
+For Hill q = 1
 
+```{r, fig.height=8.26, fig.width=3.54}
+curvas_df1 <-curvas_df|> dplyr::filter(Order.q==1)|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100")),
+    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
+    Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
+  ) |>
+  dplyr::slice_head(n=350)
+
+fig_recruit_Hill1<-curvas_df1 |>
+  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
+   geom_point(
+    data = dplyr::filter(curvas_df1, Method == "Observed"),
+    size = 2.5
+  ) +
+  facet_grid(forcats::fct_rev(Percent)~., 
+             labeller =  as_labeller(
+               c("25" = "(c) Planting 25%",
+                 "50" = "(b) Planting 50%",
+                 "100" = "(a) Planting 100%")
+               )) +
+  scale_color_manual(values=c("red", "blue", "darkgreen"))+
+  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
+  labs(
+    #color = "Planting schema",
+    #linetype = "Planted/Unplanted Area",
+    #fill = "Planting schema",
+    x = "Number of sampling units (regenerants)",
+    y = "Species diversity (Hill Index, q=1)"
+    ) +
+  ggthemes::theme_clean()+
+  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 3500, 500)) +
+  scale_y_continuous(expand = c(0, 0))+
+  theme(
+     panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
+    axis.text.y = element_text(color = "black", size = 9),
+    axis.title.y = element_text(color = "black", size = 11),
+    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
+    strip.placement = "outside",
+    legend.text = element_text(size = 11),
+    legend.title = element_blank(),
+    legend.key.size = unit(5, "mm"),
+    legend.box.background = element_blank(),
+    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = c(0.2, 0.92),
+    panel.border = element_rect(colour = "black", fill = NA),
+    panel.spacing = unit(0, "lines")
+  )
+fig_recruit_Hill1
+ggsave("fig_Hill1_recruit.png", plot=fig_recruit_Hill1, width=90, height = 210 ,unit="mm")
+```
+
+For Hill q = 2
+
+```{r, fig.height=8.26, fig.width=3.54}
+curvas_df2 <-curvas_df|> dplyr::filter(Order.q==2)|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100")),
+    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
+    Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
+  ) |>
+  dplyr::slice_head(n=350)
+
+fig_recruit_Hill2<-curvas_df2 |>
+  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
+   geom_point(
+    data = dplyr::filter(curvas_df2, Method == "Observed"),
+    size = 2.5
+  ) +
+  facet_grid(forcats::fct_rev(Percent)~., 
+             labeller =  as_labeller(
+               c("25" = "(c) Planting 25%",
+                 "50" = "(b) Planting 50%",
+                 "100" = "(a) Planting 100%")
+               )) +
+  scale_color_manual(values=c("red", "blue", "darkgreen"))+
+  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
+  labs(
+    #color = "Planting schema",
+    #linetype = "Planted/Unplanted Area",
+    #fill = "Planting schema",
+    x = "Number of sampling units (regenerants)",
+    y = "Species diversity (Hill Index, q=2)"
+    ) +
+  ggthemes::theme_clean()+
+  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 3500, 500)) +
+  scale_y_continuous(expand = c(0, 0))+
+  theme(
+     panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
+    axis.text.y = element_text(color = "black", size = 9),
+    axis.title.y = element_text(color = "black", size = 11),
+    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
+    strip.placement = "outside",
+    legend.text = element_text(size = 11),
+    legend.title = element_blank(),
+    legend.key.size = unit(5, "mm"),
+    legend.box.background = element_blank(),
+    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = c(0.2, 0.92),
+    panel.border = element_rect(colour = "black", fill = NA),
+    panel.spacing = unit(0, "lines")
+  )
+fig_recruit_Hill2
+ggsave("fig_Hill2_recruit.png", plot=fig_recruit_Hill2, width=90, height = 210 ,unit="mm")
+```
 
 ## E) Total AGB
 
