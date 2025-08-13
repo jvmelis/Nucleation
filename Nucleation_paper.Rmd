@@ -22,6 +22,21 @@ always_allow_html: true
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# After first submission
+
+  * Data and R codes available: [github](https://github.com/jvmelis/Nucleation), then it will be submited to [zenodo](https://zenodo.org)
+
+  * Inclusion of species diversity of recruiting plants: item [I.D](#d-species-richness-of-recruits), with rarefaction and Proportion of Biotic/Abiotic Seed Dispersal and  Planted/Unplanted species.
+  
+  * Table with statistical details from the models (file `"itatinga_NUC_ModelSummaries.xlsx"`)
+
+  * Fixed LiDAR figure (SE of the mean)
+  
+  * To discuss (e-meeting between authors):
+  
+    - Change in community composition from time 0 to times 5 and 7, to explore whether some tree species tend to become dominant or whether the species composition in different treatments drift in different directions.
+
+
 #  Setup environment
 
 ## 1) R Environment
@@ -33,7 +48,7 @@ version
 
 ```{r packages}
 if(!require(pacman)){install.packages("pacman")}
-pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", 
+pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", "iNEXT",
              "car", "performance", "cowplot", "MuMIn", "WorldFlora")
 pacman::p_load(pkg_list, character.only = TRUE)
 ```
@@ -131,11 +146,9 @@ survival_planted2024 <- trees_clean |> # 5416 stems
 24 seedlings per plot
 
 ```{r}
-mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv2 <- lme4::glmer(cbind(n, 24 - n) ~ bloco +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv3 <- lme4::glmer(cbind(n, 24 - n) ~ bloco+ +(1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
-mod_surv_null <-lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco), data=survival_planted2024, family = binomial(link = "logit"))
-AIC(mod_surv1, mod_surv2, mod_surv3, mod_surv_null)
+mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento + (1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
+mod_surv_null <- lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco), data=survival_planted2024, family = binomial(link = "logit"))
+AIC(mod_surv1, mod_surv_null)
 ```
 
 ```{r}
@@ -148,10 +161,10 @@ Marginal $R^2$ / Conditional $R^2$
 
 ```{r}
 MuMIn::r.squaredGLMM(mod_surv1)
-0.117/ 0.544
+0.129/ 0.487
 ```
 
-Which it is `r round(0.117/0.544, 3)`
+Which it is `r round(0.129/ 0.487, 3)`
 
 ```{r}
 sjPlot::tab_model(mod_surv1)
@@ -159,12 +172,12 @@ broom.mixed::tidy(mod_surv1) |> dplyr::mutate(dplyr::across(4:7, round, 3))
 summary(mod_surv1)
 ```
 
-Planted trees in treatment `F25` have `r round((1 - exp(-0.224))*100,2)`% *less* likely to survive (`OR=exp(-0.224)`) than in treatment `100%` ($p<0.1$)
+Planted trees in treatment `F25` have `r round((1 - exp(-0.222))*100,2)`% *less* likely to survive (`OR=exp(-0.222)`) than in treatment `100%` ($p<0.1$)
 
-Planted trees in treatment `N25` have `r  round((1 - exp(-0.548))*100,2)`% *less* likely to survive (`OR=exp(-0.548)`) than in treatment `100%` ($p<0.001$)
+Planted trees in treatment `N25` have `r  round((1 - exp(-0.544))*100,2)`% *less* likely to survive (`OR=exp(-0.544)`) than in treatment `100%` ($p<0.001$)
 
 ```{r}
-round((1 - exp(-0.548))*100,2)
+round((1 - exp(-0.544))*100,2)
 emmeans::emmeans(mod_surv1, ~ tratamento) |> 
   multcomp::cld(details = TRUE, adjust="sidak")
 ```
@@ -218,16 +231,25 @@ grass_cover2024 |>
 
 ```{r}
 modelo_gc24a <- grass_cover2024 |>
+  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
   with(glmmTMB::glmmTMB(grass_perc ~ tratamento*plantio + (1 | bloco),
                         family = glmmTMB::beta_family()))
-modelo_gc24b <-  glmmTMB::glmmTMB(grass_perc ~ tratamento+plantio + (1 | bloco),
-                   ziformula = ~ 1, family = glmmTMB::beta_family(), data=grass_cover2024)
-modelo_gc24c <-  glmmTMB::glmmTMB(grass_perc ~ plantio + (1 | bloco), 
-                                  family = glmmTMB::beta_family(), data=grass_cover2024)
-modelo_gc24d <-  glmmTMB::glmmTMB(grass_perc ~ tratamento + (1 | bloco), 
-                                  family = glmmTMB::beta_family(), data=grass_cover2024)
-modelo_gc24null <-  glmmTMB::glmmTMB(grass_perc ~ 0 + (1 | bloco), 
-                                     family = glmmTMB::beta_family(), data=grass_cover2024)
+modelo_gc24b <- grass_cover2024 |> 
+  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
+  with(glmmTMB::glmmTMB(grass_perc ~ tratamento+plantio + (1 | bloco),
+                   ziformula = ~ 1, family = glmmTMB::beta_family()))
+modelo_gc24c <-  grass_cover2024 |> 
+  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
+  with(glmmTMB::glmmTMB(grass_perc ~ plantio + (1 | bloco), 
+                                  family = glmmTMB::beta_family()))
+modelo_gc24d <-  grass_cover2024 |> 
+  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
+  with(glmmTMB::glmmTMB(grass_perc ~ tratamento + (1 | bloco), 
+                                  family = glmmTMB::beta_family()))
+modelo_gc24null <-  grass_cover2024 |> 
+  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
+  with(glmmTMB::glmmTMB(grass_perc ~ 0 + (1 | bloco), 
+                        family = glmmTMB::beta_family()))
 
 AIC(modelo_gc24a, modelo_gc24b, modelo_gc24c, modelo_gc24d, modelo_gc24null)
 ```
@@ -259,6 +281,12 @@ resultado_24a$emmeans
 ```
 
 **Answer:** yes.
+
+```{r}
+broom.mixed::tidy(modelo_gc24a) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))|> knitr::kable()
+sjPlot::tab_model(modelo_gc24a)
+```
+
 
 ### (iii) Figure - Grass cover
 
@@ -386,7 +414,7 @@ recruitment |>
 -   Only 2024 and by block
 
 ```{r}
-regenerants_2024 <- recruitment |> 
+small_regenerants_2024 <- recruitment |> 
   dplyr::filter(ano==2024) |>
   #dplyr::filter(tratamento!="100") |>
   dplyr::mutate(
@@ -396,39 +424,28 @@ regenerants_2024 <- recruitment |>
 
 
 
-
-
 ### (ii) Analysis for smaller recruits
 
 ```{r}
 modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
-                   ziformula = ~1,
-                   #family = poisson(),
+                   # family = poisson(),
                    family = glmmTMB::nbinom2(),
-                   #family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                   data = small_regenerants_2024)
 
 modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
-                   ziformula = ~1,
                    #family = poisson(),
                    family = glmmTMB::nbinom2(),
-                   #family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                   data = small_regenerants_2024)
 modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
-                   ziformula = ~1,
-                   #family = poisson(),
+                   # family = poisson(),
                    family = glmmTMB::nbinom2(),
-                   #family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                   data = small_regenerants_2024)
 modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
-                   ziformula = ~1,
-                   #family = poisson(), # ZIP
-                   family = glmmTMB::nbinom2(), # ZINB
-                   #family = glmmTMB::truncated_nbinom2(), # hurdle
-                   data = regenerants_2024)
-# ZIP  3746.473 (null) | 3166.141 (plantio*tratamento)  3606.090 (só tratamento) | 3433.868 (só plantio)
-# ZINB  1740.191 (null) | 1689.567 (plantio*tratamento)  1717.110 (só tratamento) | 1694.276 (só plantio)
-# Hurdle  1740.185 (null) | 1689.565 (plantio*tratamento)  1717.106 (só tratamento) | 1694.273 (só plantio)
+                   # family = poisson(), # Poisson
+                   #family = glmmTMB::nbinom2(), # ZINB
+                   data = small_regenerants_2024)
+# NBinom 1738.191 (null) |	1687.567 (plantio*tratamento) | 1715.110	(only tratamento) | 1692.276	(only plantio)
+# Poisson  3744.473	|	3164.141		|	3604.090		|	3431.868
 
 AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
 ```
@@ -437,6 +454,10 @@ AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
 
 ```{r}
 performance::check_singularity(modelo_reg1)
+sjPlot::tab_model(modelo_reg1)
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
+  knitr::kable()
 ```
 
 If a model is "singular", this means that some dimensions of the variance-covariance matrix have been estimated as exactly zero. This often occurs for mixed models with complex random effects structures. Therefore, there is a model convergence problem, and we have to change the random effects.
@@ -486,16 +507,22 @@ emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |>
 
 **Answer:** Yes.
 
+```{r}
+sjPlot::tab_model(modelo_reg1)
+broom.mixed::tidy(modelo_reg1) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |> knitr::kable()
+```
+
+
 
 ### (iii) Analysis for larger recruitment
 
 
 ```{r}
-regenerants_2024 <- recruitment |> 
+large_regenerants_2024 <- recruitment |> 
   dplyr::filter(ano==2024) |>
   # dplyr::filter(tratamento!="100") |>
   dplyr::mutate(n = dplyr::if_else(is.na(n_large), 0, n_large))
-regenerants_2024 |>
+large_regenerants_2024 |>
   dplyr::group_by(tratamento, plantio, bloco) |> 
   #dplyr::summarise(n = sum(n, na.rm = TRUE), .groups = "drop") |>
   ggplot(aes(x=plantio, y=n, color=bloco))+
@@ -510,33 +537,35 @@ Models
 modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
                    ziformula = ~1,
                     # family = poisson(),
-                     family = glmmTMB::nbinom2(),
-                    # family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                    # family = glmmTMB::nbinom2(),
+                     family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
 modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
                    ziformula = ~1,
                    # family = poisson(),
-                    family = glmmTMB::nbinom2(),
-                   # family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                   # family = glmmTMB::nbinom2(),
+                    family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
 modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
                    ziformula = ~1,
-                  #   family = poisson(),
-                    family = glmmTMB::nbinom2(),
+                    # family = poisson(),
+                   # family = glmmTMB::nbinom2(),
                   #  family = glmmTMB::truncated_nbinom2(),
-                   data = regenerants_2024)
+                   data = large_regenerants_2024)
 modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
                    ziformula = ~1,
                     # family = poisson(), # ZIP
-                     family = glmmTMB::nbinom2(), # ZINB
-                    # family = glmmTMB::truncated_nbinom2(), # hurdle
-                   data = regenerants_2024)
-# ZIP   920 (só plantio)   plantio*tratamento
-# ZINB  770  (só plantio)  plantio*tratamento
-# Hurdle 772  (só plantio)   plantio*tratamento
+                    # family = glmmTMB::nbinom2(), # ZINB
+                     family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = large_regenerants_2024)
+# Model (null) | (treat*planted) | (treat) | (planted)
+# ZINB 878.1779		|	862.1359		 |	861.3872	|	856.8599
+# ZIP  1048.272   | 1006.612		 |	1016.957	|	1015.703
+# Hurdle 873.7383	| 865.1757		|	861.7863		|	965.0392
 
 AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
 ```
+
 
 Exploring residuals
 
@@ -552,12 +581,18 @@ DHARMa::plotQQunif(modelo_reg3)
 
 ```{r}
 MuMIn::r.squaredGLMM(modelo_reg3)
-0.037/ 0.048
-#MuMIn::r.squaredGLMM(modelo_reg1)
-#0.088/ 0.095
+#0.03253385/0.03665597
 ```
 
-0.037/ 0.048 variance explained by fixed effects and by the entire model (around `r 0.037/ 0.048` % is explained by fixed effects)
+0.032/ 0.037 variance explained by fixed effects and by the entire model (around `r 0.03253385/0.03665597` % is explained by fixed effects)
+
+
+```{r}
+sjPlot::tab_model(modelo_reg1)
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
+  knitr::kable()
+```
 
 ```{r}
 car::Anova(modelo_reg1)
@@ -588,7 +623,7 @@ emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |>
 
 `pioneer`: colonizers, common in pastures, open areas.
 
-Only smaller recruits (0.5 m ≤  height ≤ 2 m)
+Only smaller recruits (C30 < 5 cm and h>50cm)
 
 ```{r}
 recruitment_pioneer <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_recruitment_pioneers.xlsx"))
@@ -603,11 +638,11 @@ recruitment_pioneer |>
     .groups = "drop"
   ) |>
   #dplyr::group_by(tratamento,plantio)|>
-  dplyr::summarise(mean(prop_pioneiras),
-                   sd(prop_pioneiras)/sqrt(dplyr::n()))
+  dplyr::summarise(mean_prop_pioneiras = mean(prop_pioneiras),
+                   se_prop_pioneiras = sd(prop_pioneiras)/sqrt(dplyr::n()))
 ```
 
-Larger recruits (height > 1.5 m):
+Larger recruits (C30 > 5cm):
 
 ```{r}
 recruitment_pioneer |>
@@ -620,6 +655,29 @@ recruitment_pioneer |>
     .groups = "drop"
   ) |>
   #dplyr::group_by(tratamento,plantio)|>
+  dplyr::summarise(mean_prop_pioneiras = mean(prop_pioneiras),
+                   se_prop_pioneiras = sd(prop_pioneiras)/sqrt(dplyr::n()),
+                   min_prop_pioneiras = min(prop_pioneiras),
+                   max_prop_pioneiras = max(prop_pioneiras))
+```
+
+
+Both classes (combined):
+
+```{r}
+recruitment_pioneer |>
+  dplyr::mutate(
+    n_large = dplyr::if_else(is.na(n_large), 0, n_large),
+    n_small = dplyr::if_else(is.na(n_small), 0, n_small),
+    n_both = n_small + n_large)|>
+  group_by(tratamento, plantio, bloco) |>
+  dplyr::summarise(
+    total_n = sum(n_both, na.rm = TRUE),
+    n_pioneiras = sum(n_both[pioneer == TRUE], na.rm = TRUE),
+    prop_pioneiras = n_pioneiras / total_n,
+    .groups = "drop"
+  ) |>
+  #dplyr::group_by(tratamento,plantio)|>
   dplyr::summarise(mean(prop_pioneiras),
                    sd(prop_pioneiras)/sqrt(dplyr::n()),
                    min(prop_pioneiras),
@@ -627,6 +685,7 @@ recruitment_pioneer |>
 ```
 
 
+Density of recruits
 
 ```{r}
 density_recruits_n_m2 <- recruitment_pioneer |> 
@@ -976,8 +1035,168 @@ sampled_species |>
 
 ```
 
+## D) Species Richness of recruits
 
-## D) Total AGB
+```{r}
+species_table <- readxl::read_xlsx("itatinga_Nuc_regen_species_abundance.xlsx")
+table(species_table$Treatment)
+```
+
+Summarising
+
+```{r}
+dados_list <- species_table |>
+  dplyr::group_by(Treatment, Planted, scientificName) |>
+  dplyr::summarise(n_total = sum(n_total), .groups = "drop") |>
+  dplyr::group_by(Treatment, Planted) |>
+  dplyr::summarise(abundancias = list(n_total), .groups = "drop") |>
+  dplyr::mutate(nome_grupo = paste(Treatment, Planted, sep = "_")) %>% 
+  { setNames(.$abundancias, .$nome_grupo) }
+res_inext <- iNEXT::iNEXT(
+  dados_list,
+  q = c(0, 1, 2),
+  size=seq(0, 3500,100),
+  datatype = "abundance"
+)
+
+estimativas <- res_inext$iNextEst |>
+  dplyr::bind_rows() |>
+  tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
+species_table|>
+  dplyr::arrange(Treatment, Block, Plot)
+```
+
+
+
+
+```{r}
+prop_regenerant <- species_table |>
+  dplyr::mutate(
+    planted_tree = ifelse(`Planting group`=="NA", "No", "Yes"),
+    biotic_fruit = ifelse(`Seed dispersal`=="biotic", "Yes", "No"))|>
+  dplyr::group_by(Treatment, Planted, Block, Plot) |>
+  dplyr::summarise(
+    n_species = dplyr::n(),
+    n_ind = sum(n_total),
+    n_planted_trees = sum(ifelse(planted_tree == "Yes", n_total, 0), na.rm = TRUE),
+    n_planted_spp = sum(planted_tree == "Yes"), 
+    n_biotic_trees  = sum(ifelse(biotic_fruit == "Yes", n_total, 0), na.rm = TRUE),
+    n_biotic_species  = sum(biotic_fruit == "Yes"),
+    .groups = "drop") |>
+  dplyr::mutate(
+    prop_planted = n_planted_trees / n_ind,
+    prop_planted_spp = n_planted_spp / n_species,
+    
+    prop_biotic  = n_biotic_trees  / n_ind,
+    prop_biotic_spp  = n_biotic_species  / n_species
+  ) |>
+  dplyr::group_by(Treatment, Planted) |>
+  dplyr::summarise(
+    prop_planted_mean = mean(prop_planted, na.rm = TRUE),
+    prop_planted_se   = sd(prop_planted, na.rm = TRUE) / sqrt(dplyr::n()),
+    
+    prop_spp_planted_mean = mean(prop_planted_spp, na.rm = TRUE),
+    prop_spp_planted_se   = sd(prop_planted_spp, na.rm = TRUE) / sqrt(dplyr::n()),
+    
+    prop_biotic_mean  = mean(prop_biotic, na.rm = TRUE),
+    prop_biotic_se    = sd(prop_biotic, na.rm = TRUE) / sqrt(dplyr::n()),
+    
+    prop_spp_biotic_mean  = mean(prop_biotic_spp, na.rm = TRUE),
+    prop_spp_biotic_se    = sd(prop_biotic_spp, na.rm = TRUE) / sqrt(dplyr::n()),
+    .groups = "drop"
+  ) |>
+  tidyr::separate(Treatment, into = c("Treatment", "Percent"), sep = "_")|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100"))
+  ) 
+  
+summary_species <- estimativas |>
+  dplyr::filter(Method=="Observed")|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100"))
+  ) |>
+  dplyr::arrange(Order.q,Percent) |> 
+  dplyr::select(Treatment:qD.UCL)|> 
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 2))) |> unique()|>
+  dplyr::right_join(prop_regenerant, by=c("Treatment", "Percent", "Planted"))
+
+# summary_species |> writexl::write_xlsx("resulta_diversidade_nuc.xlsx")
+```
+
+Plot
+
+```{r}
+curvas_df <- res_inext$iNextEst |>
+  dplyr::bind_rows()|>
+  tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
+
+curvas_df0 <-curvas_df|> dplyr::filter(Order.q==0)|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100")),
+    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
+    Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
+  ) |>
+  dplyr::slice_head(n=350)
+```
+
+
+```{r, fig.height=8.26, fig.width=3.54}
+fig_recruit_rich<-curvas_df0 |>
+  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
+   geom_point(
+    data = dplyr::filter(curvas_df0, Method == "Observed"),
+    size = 2.5
+  ) +
+  facet_grid(forcats::fct_rev(Percent)~., 
+             labeller =  as_labeller(
+               c("25" = "(c) Planting 25%",
+                 "50" = "(b) Planting 50%",
+                 "100" = "(a) Planting 100%")
+               )) +
+  scale_color_manual(values=c("red", "blue", "darkgreen"))+
+  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
+  labs(
+    #color = "Planting schema",
+    #linetype = "Planted/Unplanted Area",
+    #fill = "Planting schema",
+    x = "Number of sampling units (regenerants)",
+    y = "Species diversity (Hill Index, q=0)"
+    ) +
+  ggthemes::theme_clean()+
+  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 3500, 500)) +
+  scale_y_continuous(expand = c(0, 0))+
+  theme(
+     panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
+    axis.text.y = element_text(color = "black", size = 9),
+    axis.title.y = element_text(color = "black", size = 11),
+    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
+    strip.placement = "outside",
+    legend.text = element_text(size = 11),
+    legend.title = element_blank(),
+    legend.key.size = unit(5, "mm"),
+    legend.box.background = element_blank(),
+    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = c(0.2, 0.92),
+    panel.border = element_rect(colour = "black", fill = NA),
+    panel.spacing = unit(0, "lines")
+  )
+fig_recruit_rich
+ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
+
+```
+
+
+
+## E) Total AGB
 
 ### (i)  Organizing data
 
@@ -996,7 +1215,7 @@ AGB_data0 <- trees_clean |>
       tratamento %in% c("F50", "N50") & plantio == "SP" ~ (AGB_sum / 576) * 5000,
       tratamento %in% c("F25", "N25") & plantio == "CP" ~ (AGB_sum / 576) * 2500,
       tratamento %in% c("F25", "N25") & plantio == "SP" ~ (AGB_sum / 576) * 7500),
-    tratamento = ordered(tratamento, levels = ordem,
+    Tratamento = ordered(tratamento, levels = ordem,
                          labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%"))) 
 AGB_data <- AGB_data0 |> 
   dplyr::group_by(ano, tratamento, bloco)|>
@@ -1056,11 +1275,20 @@ interaction is no significant at all ($p-value \sim 0.33$)
 car::Anova(AGB_model5)
 ```
 
+Summary
+
+```{r}
+sjPlot::tab_model(AGB_model5)
+broom.mixed::tidy(AGB_model5) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+```
+
+
 Assessing comparisons:
 
 ```{r}
 emmeans::emmeans(AGB_model6, pairwise ~ tratamento | ANO) |> multcomp::cld()
 ```
+
 
 ```{r}
 AGB_model6a <- lme4::lmer(scaled_AGB ~ tratamento*Ano + (1|bloco), data = AGB_data)
@@ -1129,7 +1357,7 @@ trees_clean |>
 ```
 
 
-Tratar os valores como `(1|bloco)`?
+Should I treat them with a random factor `(1|bloco)`?
 
 ```{r}
 AGB_inside <- trees_clean |>
@@ -1138,7 +1366,7 @@ AGB_inside <- trees_clean |>
   dplyr::group_by(ano, tratamento, bloco)|>
   dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |>
   dplyr::mutate(
-    tratamento = ordered(tratamento, levels = ordem),
+    Tratamento = ordered(tratamento, levels = ordem),
     Ano = ano-2021,
     ANO = ordered(ano),
     scaled_AGB = scale(AGB_sum)) 
@@ -1181,6 +1409,11 @@ car::Anova(AGB_inside_m6)
 ```
 
 interaction is no significant at all ($p-value \sim 0.85$)
+
+```{r}
+sjPlot::tab_model(AGB_inside_m5)
+broom.mixed::tidy(AGB_inside_m5) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+```
 
 Assessing comparisons:
 
@@ -1238,7 +1471,7 @@ AGB_outside <- trees_clean |>
   dplyr::group_by(ano, tratamento, bloco)|>
   dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |>
   dplyr::mutate(
-    tratamento = ordered(tratamento, levels = ordem),
+    ratamento = ordered(tratamento, levels = ordem),
     Ano = ano-2021,
     ANO = ordered(ano),
     scaled_AGB = scale(AGB_sum)) 
@@ -1282,6 +1515,13 @@ car::Anova(AGB_outside_m5)
 ```
 
 interaction is no significant at all ($p-value \sim 0.85$)
+
+```{r}
+sjPlot::tab_model(AGB_outside_m5)
+broom.mixed::tidy(AGB_outside_m5) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+
+```
+
 
 Assessing comparisons:
 
@@ -1521,9 +1761,16 @@ MuMIn::r.squaredGLMM(modeloCHM)
 0.7002626  /0.8728069
 ```
 
-Resultados:
+Results:
 
-A tendência da variação em torno da média de CHM foi a mesma ao longo do tempo entre os tratamentos (n.s.). As diferenças significativas ($p<0.001$) observadas entre o tratamento 100% planting em relação com os outros tratamentos em 2022 manteve-se em 2024.
+The trend of variation around the mean CHM was the same over time among treatments (n.s.). The significant differences ($p<0.001$) observed between the 100% planting treatment and the other treatments in 2022 persisted in 2024.
+
+
+```{r}
+sjPlot::tab_model(modeloCHM)
+broom.mixed::tidy(modeloCHM) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+```
+
 
 #### Table S1
 
@@ -1648,6 +1895,12 @@ Comparing random and fixed effects
 ```{r}
 MuMIn::r.squaredGLMM(modeloCC)
 0.469023 / 0.6387404
+```
+
+```{r}
+sjPlot::tab_model(modeloCC)
+broom.mixed::tidy(modeloCC) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+
 ```
 
 
@@ -1807,6 +2060,12 @@ MuMIn::r.squaredGLMM(modeloLAI)
 0.7064328 /0.8459851
 ```
 
+```{r}
+sjPlot::tab_model(modeloLAI)
+broom.mixed::tidy(modeloLAI) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+```
+
+
 
 #### Table S1
 
@@ -1897,7 +2156,7 @@ p1 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(CHM_mean),
                    SD = sd(CHM_mean),
-                   SE = SD/dplyr::n(),
+                   SE = SD/sqrt(dplyr::n()),
                    .groups="drop") |>
   ggplot(aes(x = Tratamento, y = Mean, fill = as.factor(ano))) +
   geom_bar(position = position_dodge2(preserve = "single"), 
@@ -1976,7 +2235,7 @@ p2 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(Canopy_cover),
                    SD = sd(Canopy_cover),
-                   SE = SD/dplyr::n(),
+                   SE = SD/sqrt(dplyr::n()),
                    .groups="drop") |>
   ggplot(aes(x = Tratamento, y = Mean, fill = as.factor(ano))) +
   geom_bar(position = position_dodge2(preserve = "single"), 
@@ -2028,11 +2287,11 @@ letras <- data.frame(
             "A       ", "      b",
             "A       ","      ab",
             "B       ","       c"),  
-  y = c( 0.8, 1.3, 
-         1.0, 1.5, 
-         1.1, 1.8, 
-         1.2, 1.75, 
-         2.0, 2.8)
+  y = c( 0.85, 1.4, 
+         1.05, 1.55, 
+         1.15, 1.82, 
+         1.25, 1.82, 
+         2.05, 2.9)
   ) |>
   dplyr::mutate(
     Tratamento = forcats::fct_recode(Tratamento,
@@ -2052,11 +2311,11 @@ porcentos <- data.frame(
             "50%       ","          57%",
             "53%       ","          56%",
             "100%          ","        100%"),  
-  y = c( 0.5, 1, 
-         0.7, 1.2, 
-         0.8, 1.5, 
-         0.95, 1.45, 
-         1.7, 2.5)
+  y = c( 0.55, 1.1, 
+         0.75, 1.25, 
+         0.85, 1.52, 
+         0.95, 1.52, 
+         1.75, 2.65)
   )|>
   dplyr::mutate(
     Tratamento = forcats::fct_recode(Tratamento,
@@ -2072,7 +2331,7 @@ p3 <- lidar_wide |>
   dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(Mean = mean(LAI_mean),
                    SD = sd(LAI_mean),
-                   SE = SD/dplyr::n(),
+                   SE = SD/sqrt(dplyr::n()),
                    .groups="drop") |>
   dplyr::mutate(
     Tratamento = forcats::fct_recode(Tratamento,
@@ -2154,6 +2413,15 @@ cover_raw <- lidar_wide |>
 
 cost_raw <- AGB_data |> 
   dplyr::select(ano, bloco, tratamento, AGB_Mgha) |> 
+  dplyr::mutate(
+    tratamento = dplyr::case_when(
+      tratamento == "100" ~ "Planting 100%",
+      tratamento == "F25" ~ "Strips 25%",
+      tratamento == "F50" ~ "Strips 50%",
+      tratamento == "N25" ~ "Nuclei 25%",
+      tratamento == "N50" ~ "Nuclei 50%"
+    )
+    ) |>
   dplyr::right_join(cover_raw) |>
   dplyr::mutate(agb_cost = totalUS/AGB_Mgha,
                 cc_cost = totalUS/Canopy_cover,
@@ -2164,20 +2432,27 @@ cost_raw <- AGB_data |>
 #### (i) Tests
 
 ```{r}
-modeloCC <- lme4::lmer(log(cc_cost) ~ tratamento*ano + (1|bloco), data=cost_raw ) 
+modeloCC_cost <- lme4::lmer(log(cc_cost) ~ tratamento*ano + (1|bloco), data=cost_raw) 
 par(mfrow=c(1,2))
-DHARMa::plotResiduals(modeloCC)
-DHARMa::plotQQunif(modeloCC)
-emmeans::emmeans(modeloCC, pairwise ~ tratamento | ano) |> multcomp::cld()
+DHARMa::plotResiduals(modeloCC_cost)
+DHARMa::plotQQunif(modeloCC_cost)
+emmeans::emmeans(modeloCC_cost, pairwise ~ tratamento | ano) |> multcomp::cld()
 ```
 
 
 ```{r}
-modeloAGB <- lme4::lmer(log(agb_cost) ~ tratamento*ano + (1|bloco), data=cost_raw ) 
+sjPlot::tab_model(modeloCC_cost)
+broom.mixed::tidy(modeloCC_cost) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), round, 3)) 
+```
+
+
+
+```{r}
+modeloAGB_cost <- lme4::lmer(log(agb_cost) ~ tratamento*ano + (1|bloco), data=cost_raw ) 
 par(mfrow=c(1,2))
-DHARMa::plotResiduals(modeloAGB)
-DHARMa::plotQQunif(modeloAGB)
-emmeans::emmeans(modeloAGB, pairwise ~ tratamento | ano) |> multcomp::cld()
+DHARMa::plotResiduals(modeloAGB_cost)
+DHARMa::plotQQunif(modeloAGB_cost)
+emmeans::emmeans(modeloAGB_cost, pairwise ~ tratamento | ano) |> multcomp::cld()
 ```
 
 
@@ -2185,12 +2460,18 @@ And the slopes?
 
 
 ```{r}
-emmeans::emtrends(modeloAGB, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+emmeans::emtrends(modeloCC_cost, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
 ```
 
 
 ```{r}
-emmeans::emtrends(modeloCC, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+emmeans::emtrends(modeloAGB_cost, pairwise ~ tratamento, var = "ano", poly.trend = TRUE)|> multcomp::cld()
+```
+
+
+```{r}
+sjPlot::tab_model(modeloAGB_cost)
+broom.mixed::tidy(modeloAGB_cost) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), round, 3)) 
 ```
 
 
@@ -2312,6 +2593,5 @@ ggsave("fig_cost.png", plot=fig_cost, width=90, height = 120 ,unit="mm")
 ```{r}
 fig_data_cost_raw |>
   dplyr::mutate(dplyr::across(where(is.numeric), ~ round(.x, 2))) 
-rm(list=ls())
 ```
 
