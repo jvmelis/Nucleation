@@ -32,10 +32,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
   * Fixed LiDAR figure (SE of the mean)
   
-  * To discuss (e-meeting between authors):
-  
-    - Change in community composition from time 0 to times 5 and 7, to explore whether some tree species tend to become dominant or whether the species composition in different treatments drift in different directions.
-
 
 #  Setup environment
 
@@ -182,7 +178,7 @@ emmeans::emmeans(mod_surv1, ~ tratamento) |>
   multcomp::cld(details = TRUE, adjust="sidak")
 ```
 
-### (iii) Table S1 - Survival
+### (iii) Table S2 - Survival
 
 ```{r}
 survival_planted2024 |>
@@ -368,7 +364,7 @@ ggsave("fig_grass.png", plot=fig_grass, width=90, height = 90 ,unit="mm")
 
 
 
-### (iv) Table S1 - Grass cover
+### (iv) Table S2 - Grass cover
 
 
 ```{r}
@@ -619,7 +615,7 @@ emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |>
 **Answer:** No.
 
 
-### (iv) Table S1 - Recruitment
+### (iv) Table S2 - Recruitment
 
 `pioneer`: colonizers, common in pastures, open areas.
 
@@ -1056,14 +1052,15 @@ dados_list <- species_table |>
   { setNames(.$abundancias, .$nome_grupo) }
 res_inext <- iNEXT::iNEXT(
   dados_list,
-  q = c(0, 1, 2),
-  size=seq(0, 3500,100),
+  q = 0,
+  size=seq(0,2000, 100),
   datatype = "abundance"
 )
 
 estimativas <- res_inext$iNextEst |>
   dplyr::bind_rows() |>
   tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
+
 species_table|>
   dplyr::arrange(Treatment, Block, Plot)
 ```
@@ -1098,10 +1095,59 @@ prop_regenerant_full <- species_table |>
   )
 ```
 
+##### Table S2
+
+```{r}
+prop_regenerant_full |>
+  dplyr::group_by(Treatment, Planted)|>
+  dplyr::summarise(
+    prop_planted_mean = mean(prop_planted, na.rm=T),
+    prop_planted_min = min(prop_planted, na.rm=T),
+    prop_planted_max = max(prop_planted, na.rm=T),
+    
+    prop_planted_spp_mean = mean(prop_planted_spp, na.rm=T),
+    prop_planted_spp_min = min(prop_planted_spp, na.rm=T),
+    prop_planted_spp_max = max(prop_planted_spp, na.rm=T),
+    
+    prop_biotic_mean = mean(prop_biotic, na.rm=T),
+    prop_biotic_min = min(prop_biotic, na.rm=T),
+    prop_biotic_max = max(prop_biotic, na.rm=T),
+    
+    prop_biotic_spp_mean = mean(prop_biotic_spp, na.rm=T),
+    prop_biotic_spp_min = min(prop_biotic_spp, na.rm=T),
+    prop_biotic_spp_max = max(prop_biotic_spp, na.rm=T)
+  ) |>
+  dplyr::mutate(
+    prop_biotic_text = sprintf("%.1f (%.1f - %.1f)", 
+                                round(prop_biotic_mean,3)*100, 
+                                round(prop_biotic_min,3)*100, 
+                                round(prop_biotic_max,3)*100),
+    prop_biotic_spp_text = sprintf("%.1f (%.1f - %.1f)", 
+                                    round(prop_biotic_spp_mean,3)*100, 
+                                    round(prop_biotic_spp_min,3)*100, 
+                                    round(prop_biotic_spp_max,3)*100),
+    prop_planted_text = sprintf("%.1f (%.1f - %.1f)", 
+                                round(prop_planted_mean,3)*100, 
+                                round(prop_planted_min,3)*100, 
+                                round(prop_planted_max,3)*100),
+    prop_planted_spp_text = sprintf("%.1f (%.1f - %.1f)", 
+                                    round(prop_planted_spp_mean,3)*100, 
+                                    round(prop_planted_spp_min,3)*100, 
+                                    round(prop_planted_spp_max,3)*100)
+    ) |>
+  dplyr::select(Treatment, Planted, prop_biotic_text, prop_biotic_spp_text, prop_planted_text, prop_planted_spp_text) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = c(prop_biotic_text, prop_biotic_spp_text, prop_planted_text, prop_planted_spp_text)
+    ) # |> writexl::write_xlsx("resulta_prop_recruit.xlsx")
+```
+
+
+
 #### (ii) Statistical analysis for the proportions
 
 
-*Propotion of individuals with biotic seed dispersal*
+**Propotion of individuals with biotic seed dispersal**
 
 ```{r}
 mod_binomial <-lme4::glmer(
@@ -1113,10 +1159,17 @@ performance::check_overdispersion(mod_binomial)
 DHARMa::plotResiduals(mod_binomial)
 summary(mod_binomial)
 emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+emmeans::emmeans(mod_binomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
 ```
 
 
-*Propotion of species with biotic seed dispersal*
+```{r}
+broom.mixed::tidy(mod_binomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_binomial)
+```
+
+
+**Propotion of species with biotic seed dispersal**
 
 ```{r}
 mod_binomial <-lme4::glmer(
@@ -1139,15 +1192,17 @@ performance::check_overdispersion(mod_betabinomial)
 
 DHARMa::plotResiduals(mod_betabinomial)
 summary(mod_betabinomial)
-
-sjPlot::tab_model(mod_betabinomial)
+emmeans::emmeans(mod_betabinomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+emmeans::emmeans(mod_betabinomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
 ```
 
 
+```{r}
+broom.mixed::tidy(mod_betabinomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_betabinomial)
+```
 
-
-
-*Propotion of individuals from planted species*
+**Propotion of individuals from planted species**
 
 ```{r}
 mod_binomial <-lme4::glmer(
@@ -1159,10 +1214,17 @@ performance::check_overdispersion(mod_binomial) # heterokedasticity
 DHARMa::plotResiduals(mod_binomial)
 summary(mod_binomial)
 emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+emmeans::emmeans(mod_binomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
 ```
 
 
-*Propotion of planted species*
+```{r}
+broom.mixed::tidy(mod_binomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_binomial)
+```
+
+
+**Propotion of planted species**
 
 ```{r}
 mod_binomial <-lme4::glmer(
@@ -1173,12 +1235,15 @@ mod_binomial <-lme4::glmer(
 performance::check_overdispersion(mod_binomial)
 DHARMa::plotResiduals(mod_binomial)
 summary(mod_binomial)
-
-sjPlot::tab_model(mod_binomial)
+emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+emmeans::emmeans(mod_binomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
 ```
 
 
-
+```{r}
+broom.mixed::tidy(mod_binomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_binomial)
+```
 
 
 
@@ -1226,20 +1291,21 @@ summary_species <- estimativas |>
 For Hill q = 0
 
 ```{r, fig.height=8.26, fig.width=3.54}
-curvas_df <- res_inext$iNextEst |>
-  dplyr::bind_rows()|>
-  tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
-
-curvas_df0 <-curvas_df|> dplyr::filter(Order.q==0)|>
+curvas_df0 <- estimativas |> 
+  dplyr::filter(Order.q==0)|> 
+  dplyr::filter(!is.na(SC.LCL))|>
   dplyr::mutate(
     Percent = ifelse(Percent=="Planted", "100", Percent),
     Percent = ordered(Percent, levels = c("25", "50", "100")),
     Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
     Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
-  ) |>
-  dplyr::slice_head(n=350)
+  ) 
+```
 
-fig_recruit_rich<-curvas_df0 |>
+
+
+```{r, fig.height=8.26, fig.width=3.54}
+fig_recruit_rich <- curvas_df0 |>
   ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
@@ -1247,18 +1313,15 @@ fig_recruit_rich<-curvas_df0 |>
     data = dplyr::filter(curvas_df0, Method == "Observed"),
     size = 2.5
   ) +
-  facet_grid(forcats::fct_rev(Percent)~., 
+  facet_grid(Percent~., 
              labeller =  as_labeller(
-               c("25" = "(c) Planting 25%",
+               c("25" = "(a) Planting 25%",
                  "50" = "(b) Planting 50%",
-                 "100" = "(a) Planting 100%")
+                 "100" = "(c) Planting 100%")
                )) +
   scale_color_manual(values=c("red", "blue", "darkgreen"))+
   scale_fill_manual(values=c("red", "blue", "darkgreen"))+
   labs(
-    #color = "Planting schema",
-    #linetype = "Planted/Unplanted Area",
-    #fill = "Planting schema",
     x = "Number of sampling units (regenerants)",
     y = "Species diversity (Hill Index, q=0)"
     ) +
@@ -1280,7 +1343,7 @@ fig_recruit_rich<-curvas_df0 |>
     legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
     legend.background = element_blank(),
     legend.margin = margin(0, 0, 0, 0),
-    legend.position = c(0.2, 0.92),
+    legend.position = c(0.2, 0.25),
     panel.border = element_rect(colour = "black", fill = NA),
     panel.spacing = unit(0, "lines")
   )
@@ -1288,127 +1351,6 @@ fig_recruit_rich
 ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
 ```
 
-For Hill q = 1
-
-```{r, fig.height=8.26, fig.width=3.54}
-curvas_df1 <-curvas_df|> dplyr::filter(Order.q==1)|>
-  dplyr::mutate(
-    Percent = ifelse(Percent=="Planted", "100", Percent),
-    Percent = ordered(Percent, levels = c("25", "50", "100")),
-    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
-    Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
-  ) |>
-  dplyr::slice_head(n=350)
-
-fig_recruit_Hill1<-curvas_df1 |>
-  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
-  geom_line(linewidth = 1) +
-  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
-   geom_point(
-    data = dplyr::filter(curvas_df1, Method == "Observed"),
-    size = 2.5
-  ) +
-  facet_grid(forcats::fct_rev(Percent)~., 
-             labeller =  as_labeller(
-               c("25" = "(c) Planting 25%",
-                 "50" = "(b) Planting 50%",
-                 "100" = "(a) Planting 100%")
-               )) +
-  scale_color_manual(values=c("red", "blue", "darkgreen"))+
-  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
-  labs(
-    #color = "Planting schema",
-    #linetype = "Planted/Unplanted Area",
-    #fill = "Planting schema",
-    x = "Number of sampling units (regenerants)",
-    y = "Species diversity (Hill Index, q=1)"
-    ) +
-  ggthemes::theme_clean()+
-  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 3500, 500)) +
-  scale_y_continuous(expand = c(0, 0))+
-  theme(
-     panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_blank(),
-    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
-    axis.text.y = element_text(color = "black", size = 9),
-    axis.title.y = element_text(color = "black", size = 11),
-    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
-    strip.placement = "outside",
-    legend.text = element_text(size = 11),
-    legend.title = element_blank(),
-    legend.key.size = unit(5, "mm"),
-    legend.box.background = element_blank(),
-    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
-    legend.background = element_blank(),
-    legend.margin = margin(0, 0, 0, 0),
-    legend.position = c(0.2, 0.92),
-    panel.border = element_rect(colour = "black", fill = NA),
-    panel.spacing = unit(0, "lines")
-  )
-fig_recruit_Hill1
-ggsave("fig_Hill1_recruit.png", plot=fig_recruit_Hill1, width=90, height = 210 ,unit="mm")
-```
-
-For Hill q = 2
-
-```{r, fig.height=8.26, fig.width=3.54}
-curvas_df2 <-curvas_df|> dplyr::filter(Order.q==2)|>
-  dplyr::mutate(
-    Percent = ifelse(Percent=="Planted", "100", Percent),
-    Percent = ordered(Percent, levels = c("25", "50", "100")),
-    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
-    Treatment = ifelse(Treatment=="Full", "Total area", Treatment)
-  ) |>
-  dplyr::slice_head(n=350)
-
-fig_recruit_Hill2<-curvas_df2 |>
-  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
-  geom_line(linewidth = 1) +
-  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
-   geom_point(
-    data = dplyr::filter(curvas_df2, Method == "Observed"),
-    size = 2.5
-  ) +
-  facet_grid(forcats::fct_rev(Percent)~., 
-             labeller =  as_labeller(
-               c("25" = "(c) Planting 25%",
-                 "50" = "(b) Planting 50%",
-                 "100" = "(a) Planting 100%")
-               )) +
-  scale_color_manual(values=c("red", "blue", "darkgreen"))+
-  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
-  labs(
-    #color = "Planting schema",
-    #linetype = "Planted/Unplanted Area",
-    #fill = "Planting schema",
-    x = "Number of sampling units (regenerants)",
-    y = "Species diversity (Hill Index, q=2)"
-    ) +
-  ggthemes::theme_clean()+
-  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 3500, 500)) +
-  scale_y_continuous(expand = c(0, 0))+
-  theme(
-     panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_blank(),
-    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
-    axis.text.y = element_text(color = "black", size = 9),
-    axis.title.y = element_text(color = "black", size = 11),
-    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
-    strip.placement = "outside",
-    legend.text = element_text(size = 11),
-    legend.title = element_blank(),
-    legend.key.size = unit(5, "mm"),
-    legend.box.background = element_blank(),
-    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
-    legend.background = element_blank(),
-    legend.margin = margin(0, 0, 0, 0),
-    legend.position = c(0.2, 0.92),
-    panel.border = element_rect(colour = "black", fill = NA),
-    panel.spacing = unit(0, "lines")
-  )
-fig_recruit_Hill2
-ggsave("fig_Hill2_recruit.png", plot=fig_recruit_Hill2, width=90, height = 210 ,unit="mm")
-```
 
 ## E) Total AGB
 
@@ -1685,7 +1627,7 @@ AGB_outside <- trees_clean |>
   dplyr::group_by(ano, tratamento, bloco)|>
   dplyr::summarise(AGB_sum = sum(AGB_ferez, na.rm=T)/1000, .groups = "drop") |>
   dplyr::mutate(
-    ratamento = ordered(tratamento, levels = ordem),
+    Tratamento = ordered(tratamento, levels = ordem),
     Ano = ano-2021,
     ANO = ordered(ano),
     scaled_AGB = scale(AGB_sum)) 
@@ -1816,11 +1758,11 @@ Percentuals
 
 ```{r}
 agb_plot_data <-AGB_data0 |> 
-  dplyr::group_by(ano, tratamento, plantio, bloco)|>
+  dplyr::group_by(ano, Tratamento, plantio, bloco)|>
   dplyr::summarise(
     AGB_Mgha = sum(AGB_Mgha),
     .groups = "drop") |>
- dplyr::group_by(ano, tratamento, plantio)|>
+ dplyr::group_by(ano, Tratamento, plantio)|>
     dplyr::summarise(meanAGB = mean(AGB_Mgha),
     sd = sd(AGB_Mgha),
     n = dplyr::n(),
@@ -1828,7 +1770,7 @@ agb_plot_data <-AGB_data0 |>
     .groups = "drop") |>
   dplyr::mutate(
     Ano = as.factor(ifelse(ano == 2022, "5", "7")),
-    Tratamento = forcats::fct_recode(tratamento,
+    Tratamento = forcats::fct_recode(Tratamento,
                                      "Nuclei\n25%" = "Nuclei 25%",
                                      "Strips\n25%" = "Strips 25%",
                                      "Nuclei\n50%" = "Nuclei 50%",
@@ -1836,12 +1778,12 @@ agb_plot_data <-AGB_data0 |>
                                      "Planting\n100%" = "Planting 100%"
                                      ))
 max_year <- agb_plot_data |>
-  dplyr::group_by(ano, tratamento)|>
+  dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(meanAGB = max(meanAGB),.groups="drop")|>
   dplyr::group_by(ano)|>
   dplyr::summarise(max_year = max(meanAGB), .groups="drop")
 agb_plot_data |>
-  dplyr::group_by(ano, tratamento)|>
+  dplyr::group_by(ano, Tratamento)|>
   dplyr::summarise(meanAGB = max(meanAGB),.groups="drop")|>
   dplyr::right_join(max_year, by="ano") |>
   dplyr::mutate(porcentos = round( (meanAGB/max_year)*100, 0))
