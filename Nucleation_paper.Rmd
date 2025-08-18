@@ -32,6 +32,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
   * Fixed LiDAR figure (SE of the mean)
   
+  * Fixed plots with empty recruits
 
 #  Setup environment
 
@@ -86,7 +87,7 @@ lidar2024_wide <- readxl::read_xlsx(
                 ano =  2024) |>
   dplyr::select(-Perc_cobertura)
 
-lidar_wide <- dplyr::bind_rows(lidar2022_wide, lidar2024_wide) |># 40 x 12
+lidar_wide <- dplyr::bind_rows(lidar2022_wide, lidar2024_wide) |> # 40 x 12
    dplyr::mutate(
      Tratamento = factor(Tratamento, 
                          levels = c("25_tabuleiro", "25_faixa",  "50_tabuleiro", "50_faixa", "100_controle"),
@@ -142,6 +143,9 @@ survival_planted2024 <- trees_clean |> # 5416 stems
 24 seedlings per plot
 
 ```{r}
+survival_planted2024 |>
+  with(table(bloco, parcela, by=tratamento))
+survival_planted2024 |> dplyr::arrange(tratamento, bloco, parcela)
 mod_surv1 <- lme4::glmer(cbind(n, 24 - n) ~ tratamento + (1|bloco), data = survival_planted2024, family = binomial(link = "logit"))
 mod_surv_null <- lme4::glmer(cbind(n, 24 - n) ~ 0 +(1|bloco), data=survival_planted2024, family = binomial(link = "logit"))
 AIC(mod_surv1, mod_surv_null)
@@ -212,6 +216,8 @@ grass_cover <- readxl::read_xlsx(
                          labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%"))) |>
    droplevels()
 grass_cover2024 <- grass_cover |> dplyr::filter(tratamento!="Planting 100%") |> dplyr::filter(ano==2024)
+grass_cover2024 |>
+  with(table(bloco, parcela, by=tratamento))
 ```
 
 Too many zeros? Zero-Inflated model? There is few zeros. *Only binomial fit*
@@ -226,10 +232,12 @@ grass_cover2024 |>
 ### (ii) Analysis
 
 ```{r}
-modelo_gc24a <- grass_cover2024 |>
-  dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
-  with(glmmTMB::glmmTMB(grass_perc ~ tratamento*plantio + (1 | bloco),
-                        family = glmmTMB::beta_family()))
+grass_cover2024 |>
+  with(table(bloco, parcela, by=tratamento))
+grass_cover2024 <-grass_cover2024 |>
+  dplyr::mutate(Tratamento=factor(tratamento, ordered = FALSE))
+modelo_gc24a <- glmmTMB::glmmTMB(grass_perc ~ Tratamento*plantio + (1 | bloco),
+                        family = glmmTMB::beta_family(), data = grass_cover2024)
 modelo_gc24b <- grass_cover2024 |> 
   dplyr::mutate(tratamento=factor(tratamento,ordered = FALSE))|>
   with(glmmTMB::glmmTMB(grass_perc ~ tratamento+plantio + (1 | bloco),
@@ -261,7 +269,7 @@ DHARMa::plotResiduals(modelo_gc24a)
 Is there any difference between treatments considering inside/outside?
 
 ```{r}
-resultado_24 <- emmeans::emmeans(modelo_gc24a, ~ tratamento|plantio) |> 
+resultado_24 <- emmeans::emmeans(modelo_gc24a, ~ Tratamento|plantio) |> 
   multcomp::cld( details = TRUE)
 resultado_24$emmeans
 ```
@@ -271,7 +279,7 @@ resultado_24$emmeans
 Is there any difference between inside/outside considering treatments?
 
 ```{r}
-resultado_24a <- emmeans::emmeans(modelo_gc24a, ~ plantio|tratamento) |> 
+resultado_24a <- emmeans::emmeans(modelo_gc24a, ~ plantio|Tratamento) |> 
   multcomp::cld(details = TRUE)
 resultado_24a$emmeans
 ```
@@ -281,6 +289,11 @@ resultado_24a$emmeans
 ```{r}
 broom.mixed::tidy(modelo_gc24a) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))|> knitr::kable()
 sjPlot::tab_model(modelo_gc24a)
+lme4::VarCorr(modelo_gc24a)  # ou summary(modelo_gc24a)$varcor
+MuMIn::r.squaredGLMM(modelo_gc24a)
+m_fix <- update(modelo_gc24a, . ~ . - (1|bloco))
+anova(modelo_gc24a, m_fix) 
+performance::check_singularity(modelo_gc24a)
 ```
 
 
@@ -359,7 +372,7 @@ fig_grass <- grass_cover |>
     legend.spacing = unit(0, "mm"),
     legend.background = element_blank())
 fig_grass
-ggsave("fig_grass.png", plot=fig_grass, width=90, height = 90 ,unit="mm")
+# ggsave("fig_grass.png", plot=fig_grass, width=90, height = 90 ,unit="mm")
 ```
 
 
@@ -505,6 +518,10 @@ emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |>
 
 ```{r}
 sjPlot::tab_model(modelo_reg1)
+m_fix <- update(modelo_reg1, . ~ . - (1|bloco))
+
+performance::check_singularity(modelo_reg1)
+anova(modelo_reg1, m_fix)   # se não há ganho, var(bloco) pode ser ~0
 broom.mixed::tidy(modelo_reg1) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |> knitr::kable()
 ```
 
@@ -1001,7 +1018,7 @@ fig_recruits <- cowplot::plot_grid(#fig_grass+theme(axis.text.x=element_blank())
                                    ncol = 1,
                                    labels = c("(a)", "(b)"), label_size = 10, label_x = 0.01, label_y = 1)
 fig_recruits
-ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
+# ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
 ```
 
 ### (vi) Species list table
@@ -1286,6 +1303,7 @@ summary_species <- estimativas |>
 # summary_species |> writexl::write_xlsx("resulta_diversidade_nuc.xlsx")
 ```
 
+
 #### (iii) Figure Recruits' species richness
 
 For Hill q = 0
@@ -1348,7 +1366,7 @@ fig_recruit_rich <- curvas_df0 |>
     panel.spacing = unit(0, "lines")
   )
 fig_recruit_rich
-ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
+# ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
 ```
 
 
@@ -1850,7 +1868,7 @@ fig_biomass<-agb_plot_data |>
     legend.position = c(0.18, 0.90)
   )
 fig_biomass
-ggsave("fig_biomass.png", plot=fig_biomass, width=90, height = 90 ,unit="mm")
+# ggsave("fig_biomass.png", plot=fig_biomass, width=90, height = 90 ,unit="mm")
 ```
 
 
@@ -2529,7 +2547,7 @@ fig_lidar <- cowplot::plot_grid(p1,p2,p3, ncol = 1,align = "v", axis = "l",
        labels = c("(a)", "(b)", "(c)"), label_size = 10, label_x = 0.01, label_y = 1)
 
 fig_lidar
-ggsave("fig_lidar.png", plot=fig_lidar, width=90, height = 210 ,unit="mm")
+# ggsave("fig_lidar.png", plot=fig_lidar, width=90, height = 210 ,unit="mm")
 ```
 
 **capital letters**: 5 years
@@ -2739,7 +2757,7 @@ fig_cost <- cowplot::plot_grid(fig_cost1, fig_cost2, ncol = 1,
                                labels = c("(a)", "(b)"), label_size = 8, 
                                label_x = 0.05, label_y = c(1,1.1))
 fig_cost
-ggsave("fig_cost.png", plot=fig_cost, width=90, height = 120 ,unit="mm")
+# ggsave("fig_cost.png", plot=fig_cost, width=90, height = 120 ,unit="mm")
 ```
 
 
