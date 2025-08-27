@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
   * Data and R codes available: [github](https://github.com/jvmelis/Nucleation), then it will be submited to [zenodo](https://zenodo.org)
 
-  * Inclusion of species diversity of recruiting plants: item [I.D](#d-species-richness-of-recruits), with rarefaction and Proportion of Biotic/Abiotic Seed Dispersal and  Planted/Unplanted species.
+  * Inclusion of species diversity of recruiting plants: item [I.C](#c-recruitment), with rarefaction and Proportion of Biotic/Abiotic Seed Dispersal and  Planted/Unplanted species.
   
   * Table with statistical details from the models (file `"itatinga_NUC_ModelSummaries.xlsx"`)
 
@@ -34,7 +34,11 @@ knitr::opts_chunk$set(echo = TRUE)
   
   * Fixed plots with empty recruits
   
-  * Considering only small recruits in species richness analyses item ([I.D](#d-species-richness-of-recruits))
+  * Considering only small recruits in species richness rarefaction curves
+  
+  * Analyses separating Baccharis + Vernonanthura
+  
+  
 
 #  Setup environment
 
@@ -48,7 +52,7 @@ version
 ```{r packages}
 if(!require(pacman)){install.packages("pacman")}
 pkg_list <-c("tidyverse", "lme4", "DHARMa", "emmeans", "multcomp", "iNEXT",
-             "car", "performance", "cowplot", "MuMIn", "WorldFlora")
+             "car", "performance", "cowplot", "MuMIn", "ggpattern")
 pacman::p_load(pkg_list, character.only = TRUE)
 ```
 
@@ -397,676 +401,34 @@ grass_cover |>
 
 ## C) Recruitment
 
-### (i)  Organizing data
-
-Read data
-
-```{r}
-recruitment <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_recruitment.xlsx"))
-```
-
-Visual exploration of small recruitment ( *saplings* )
-
-```{r}
-recruitment |>
-  ggplot(
-    aes(x = n_small, 
-        y = as.factor(ano), 
-        group = as.factor(ano), 
-        fill = as.factor(ano))) + 
-  ggridges::geom_density_ridges(alpha=0.5,
-                                quantile_lines = TRUE, 
-                                quantiles = c(0.025, 0.5, 0.975),
-                                jittered_points = TRUE)+
-  scale_fill_brewer(palette = "RdYlBu")+
-  scale_y_discrete(expand=c(0,0))+
-  facet_grid(plantio~tratamento)+
-  theme_bw()
-```
-
--   Only 2024 and by block
-
-```{r}
-small_regenerants_2024 <- recruitment |> 
-  dplyr::filter(ano==2024) |>
-  #dplyr::filter(tratamento!="100") |>
-  dplyr::mutate(
-    n = dplyr::if_else(is.na(n_small), 0, n_small))
-  # dplyr::group_by(tratamento, plantio, bloco) |> dplyr::summarise(n = sum(n_small, na.rm = TRUE), .groups = "drop")
-```
-
-
-
-### (ii) Analysis for smaller recruits
-
-```{r}
-modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
-                   # family = poisson(),
-                   family = glmmTMB::nbinom2(),
-                   data = small_regenerants_2024)
-
-modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
-                   #family = poisson(),
-                   family = glmmTMB::nbinom2(),
-                   data = small_regenerants_2024)
-modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
-                   # family = poisson(),
-                   family = glmmTMB::nbinom2(),
-                   data = small_regenerants_2024)
-modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
-                   # family = poisson(), # Poisson
-                   #family = glmmTMB::nbinom2(), # ZINB
-                   data = small_regenerants_2024)
-# NBinom 1738.191 (null) |	1687.567 (plantio*tratamento) | 1715.110	(only tratamento) | 1692.276	(only plantio)
-# Poisson  3744.473	|	3164.141		|	3604.090		|	3431.868
-
-AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
-```
-
-`non-positive-definite Hessian matrix`  indicates that there are problems in estimating the model parameters. This may be related to redundancies in the random effects, perfect separation, few data for some combinations of factors, or problems in choosing the distribution. Therefore, let's check the singularity:
-
-```{r}
-performance::check_singularity(modelo_reg1)
-sjPlot::tab_model(modelo_reg1)
-broom.mixed::tidy(modelo_reg1) |>
-  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
-  knitr::kable()
-```
-
-If a model is "singular", this means that some dimensions of the variance-covariance matrix have been estimated as exactly zero. This often occurs for mixed models with complex random effects structures. Therefore, there is a model convergence problem, and we have to change the random effects.
-
-Exploring residuals
-
-```{r, fig.width=10, fig.height=10}
-par(mfrow=c(2,2))
-DHARMa::plotResiduals(modelo_reg1)
-DHARMa::plotQQunif(modelo_reg1)
-DHARMa::plotResiduals(modelo_reg3)
-DHARMa::plotQQunif(modelo_reg3)
-```
-
-
-```{r}
-car::Anova(modelo_reg1)
-```
-
-
-
-Is there any difference between treatments considering only inside or outside?
-
-```{r}
-emmeans::emmeans(modelo_reg1, ~ tratamento|plantio) |> 
-  multcomp::cld(details = TRUE)
-```
-
-**Answer:** Yes (inside) and no (outside).
-
-Is there any difference between treatments *not* considering inside/outside?
-
-```{r}
-emmeans::emmeans(modelo_reg2, ~ tratamento) |> 
-  multcomp::cld(details = TRUE)
-```
-
-
-**Answer:** No.
-
-Is there any difference between inside/outside considering treatments?
-
-```{r}
-emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |> 
-  multcomp::cld(details = TRUE)
-```
-
-**Answer:** Yes.
-
-```{r}
-sjPlot::tab_model(modelo_reg1)
-m_fix <- update(modelo_reg1, . ~ . - (1|bloco))
-
-performance::check_singularity(modelo_reg1)
-anova(modelo_reg1, m_fix)   # se não há ganho, var(bloco) pode ser ~0
-broom.mixed::tidy(modelo_reg1) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |> knitr::kable()
-```
-
-
-
-### (iii) Analysis for larger recruitment
-
-
-```{r}
-large_regenerants_2024 <- recruitment |> 
-  dplyr::filter(ano==2024) |>
-  # dplyr::filter(tratamento!="100") |>
-  dplyr::mutate(n = dplyr::if_else(is.na(n_large), 0, n_large))
-large_regenerants_2024 |>
-  dplyr::group_by(tratamento, plantio, bloco) |> 
-  #dplyr::summarise(n = sum(n, na.rm = TRUE), .groups = "drop") |>
-  ggplot(aes(x=plantio, y=n, color=bloco))+
-  geom_point()+facet_wrap(~tratamento)+theme_bw()
-
-```
-
-
-Models
-
-```{r}
-modelo_reg1 <- glmmTMB::glmmTMB(n ~ tratamento*plantio + (1 | bloco),
-                   ziformula = ~1,
-                    # family = poisson(),
-                    # family = glmmTMB::nbinom2(),
-                     family = glmmTMB::truncated_nbinom2(),
-                   data = large_regenerants_2024)
-modelo_reg2 <-  glmmTMB::glmmTMB(n ~ tratamento + (1 | bloco),
-                   ziformula = ~1,
-                   # family = poisson(),
-                   # family = glmmTMB::nbinom2(),
-                    family = glmmTMB::truncated_nbinom2(),
-                   data = large_regenerants_2024)
-modelo_reg3 <-  glmmTMB::glmmTMB(n ~ plantio + (1 | bloco),
-                   ziformula = ~1,
-                    # family = poisson(),
-                   # family = glmmTMB::nbinom2(),
-                  #  family = glmmTMB::truncated_nbinom2(),
-                   data = large_regenerants_2024)
-modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | bloco),
-                   ziformula = ~1,
-                    # family = poisson(), # ZIP
-                    # family = glmmTMB::nbinom2(), # ZINB
-                     family = glmmTMB::truncated_nbinom2(), # hurdle
-                   data = large_regenerants_2024)
-# Model (null) | (treat*planted) | (treat) | (planted)
-# ZINB 878.1779		|	862.1359		 |	861.3872	|	856.8599
-# ZIP  1048.272   | 1006.612		 |	1016.957	|	1015.703
-# Hurdle 873.7383	| 865.1757		|	861.7863		|	965.0392
-
-AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
-```
-
-
-Exploring residuals
-
-```{r}
-par(mfrow=c(2,2))
-DHARMa::plotResiduals(modelo_reg1)
-DHARMa::plotQQunif(modelo_reg1)
-DHARMa::plotResiduals(modelo_reg3)
-DHARMa::plotQQunif(modelo_reg3)
-```
-
-
-
-```{r}
-MuMIn::r.squaredGLMM(modelo_reg3)
-#0.03253385/0.03665597
-```
-
-0.032/ 0.037 variance explained by fixed effects and by the entire model (around `r 0.03253385/0.03665597` % is explained by fixed effects)
-
-
-```{r}
-sjPlot::tab_model(modelo_reg1)
-broom.mixed::tidy(modelo_reg1) |>
-  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
-  knitr::kable()
-```
-
-```{r}
-car::Anova(modelo_reg1)
-```
-
-
-
-Is there any difference between treatments considering inside/outside?
-
-```{r}
-emmeans::emmeans(modelo_reg1, ~ tratamento|plantio) |> 
-  multcomp::cld(details = TRUE)
-```
-
-**Answer:** No.
-
-Is there any difference between inside/outside considering treatments?
-
-```{r}
-emmeans::emmeans(modelo_reg1, ~ plantio|tratamento) |> 
-  multcomp::cld(details = TRUE)
-```
-
-**Answer:** No.
-
-
-### (iv) Table S2 - Recruitment
-
-`pioneer`: colonizers, common in pastures, open areas.
-
-Only smaller recruits (C30 < 5 cm and h>50cm)
-
-```{r}
-recruitment_pioneer <- readxl::read_xlsx(paste0(path, "/Itatinga_Nuc_recruitment_pioneers.xlsx"))
-
-recruitment_pioneer |>
-  dplyr::mutate(n_small = dplyr::if_else(is.na(n_small), 0, n_small))|>
-  group_by(tratamento, bloco, plantio) |>
-  dplyr::summarise(
-    total_n_small = sum(n_small, na.rm = TRUE),
-    n_small_pioneiras = sum(n_small[pioneer == TRUE], na.rm = TRUE),
-    prop_pioneiras = n_small_pioneiras / total_n_small,
-    .groups = "drop"
-  ) |>
-  #dplyr::group_by(tratamento,plantio)|>
-  dplyr::summarise(mean_prop_pioneiras = mean(prop_pioneiras),
-                   se_prop_pioneiras = sd(prop_pioneiras)/sqrt(dplyr::n()))
-```
-
-Larger recruits (C30 > 5cm):
-
-```{r}
-recruitment_pioneer |>
-  dplyr::mutate(n_large = dplyr::if_else(is.na(n_large), 0, n_large))|>
-  group_by(tratamento, plantio, bloco) |>
-  dplyr::summarise(
-    total_n = sum(n_large, na.rm = TRUE),
-    n_pioneiras = sum(n_large[pioneer == TRUE], na.rm = TRUE),
-    prop_pioneiras = n_pioneiras / total_n,
-    .groups = "drop"
-  ) |>
-  #dplyr::group_by(tratamento,plantio)|>
-  dplyr::summarise(mean_prop_pioneiras = mean(prop_pioneiras),
-                   se_prop_pioneiras = sd(prop_pioneiras)/sqrt(dplyr::n()),
-                   min_prop_pioneiras = min(prop_pioneiras),
-                   max_prop_pioneiras = max(prop_pioneiras))
-```
-
-
-Both classes (combined):
-
-```{r}
-recruitment_pioneer |>
-  dplyr::mutate(
-    n_large = dplyr::if_else(is.na(n_large), 0, n_large),
-    n_small = dplyr::if_else(is.na(n_small), 0, n_small),
-    n_both = n_small + n_large)|>
-  group_by(tratamento, plantio, bloco) |>
-  dplyr::summarise(
-    total_n = sum(n_both, na.rm = TRUE),
-    n_pioneiras = sum(n_both[pioneer == TRUE], na.rm = TRUE),
-    prop_pioneiras = n_pioneiras / total_n,
-    .groups = "drop"
-  ) |>
-  #dplyr::group_by(tratamento,plantio)|>
-  dplyr::summarise(mean(prop_pioneiras),
-                   sd(prop_pioneiras)/sqrt(dplyr::n()),
-                   min(prop_pioneiras),
-                   max(prop_pioneiras))
-```
-
-
-Density of recruits
-
-```{r}
-density_recruits_n_m2 <- recruitment_pioneer |> 
-  dplyr::filter(ano == 2024) |>
-  dplyr::mutate(
-    n_small = dplyr::if_else(is.na(n_small), 0, n_small),
-    n_large = dplyr::if_else(is.na(n_large), 0, n_large)) |>
-  dplyr::group_by(tratamento, bloco, plantio) |>
-  dplyr::summarise(
-    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
-    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
-    .groups = "drop")
-
-dens_ha <- density_recruits_n_m2 |>
-  dplyr::mutate(
-    n_small_ha = n_small_m2 * 10000,
-    n_large_ha = n_large_m2 * 10000
-  )
-dens_CP_SP <- dens_ha |>
-  tidyr::pivot_wider(
-    names_from = plantio,
-    values_from = c(n_small_ha, n_large_ha),
-    names_sep = "_"
-  )
-
-prop_table <- tidyr::tibble(
-  tratamento = unique(recruitment_pioneer$tratamento),
-  prop_CP = c(0.25, 0.25, 0.5, 0.5, 1),
-  prop_SP = 1 - prop_CP
-)
-
-
-result_regenerant <- dens_CP_SP |>
-  dplyr::left_join(prop_table, by = "tratamento") %>%
-  dplyr::mutate(
-    n_small_total_ha = dplyr::coalesce(n_small_ha_CP * prop_CP, 0)  + dplyr::coalesce(n_small_ha_SP * prop_SP, 0),
-    n_large_total_ha = dplyr::coalesce(n_large_ha_CP * prop_CP, 0) + dplyr::coalesce(n_large_ha_SP * prop_SP, 0)
-  ) |>
-  dplyr::select(tratamento,
-         starts_with("n_small_ha"),
-         starts_with("n_large_ha"),
-         n_small_total_ha,
-         n_large_total_ha
-  )
-```
-
-
-#### Smaller recruits
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_small_ha_CP, na.rm=TRUE),1),
-    min = round(min(n_small_ha_CP, na.rm=TRUE),0),
-    max = round(max(n_small_ha_CP, na.rm=TRUE),0)
-  )
-```
-
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_small_ha_SP, na.rm=TRUE),1),
-    min = round(min(n_small_ha_SP, na.rm=TRUE),0),
-    max = round(max(n_small_ha_SP, na.rm=TRUE),0)
-  )
-```
-
-
-In total
-
- tratamento  .group
- 100            1    
- F25            1    
- N25            1    
- N50            1    
- F50            1 
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
-    min = round(min(n_small_total_ha, na.rm=TRUE),0),
-    max = round(max(n_small_total_ha, na.rm=TRUE),0)
-  )
-```
-
-
-#### Larger recruits
-
-All treatments and inside/outside areas showed similar values
-
-Inside planted areas:
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_large_ha_CP, na.rm=TRUE),1),
-    min = round(min(n_large_ha_CP, na.rm=TRUE),0),
-    max = round(max(n_large_ha_CP, na.rm=TRUE),0)
-  )
-```
-
-
-Outside planted areas:
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_large_ha_SP, na.rm=TRUE),1),
-    min = round(min(n_large_ha_SP, na.rm=TRUE),0),
-    max = round(max(n_large_ha_SP, na.rm=TRUE),0)
-  )
-```
-
-
-
-Total:
-
-
-```{r}
-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean = round(mean(n_large_total_ha, na.rm=TRUE), 1),
-    min = round(min(n_large_total_ha, na.rm=TRUE), 0),
-    max = round(max(n_large_total_ha, na.rm=TRUE), 0)
-  )
-```
-
-
-
-### (v) Figure Recruitment
-
-
-*Small letters*: Comparison between treatments, only inside planted areas. 
-
-*Capital letters*: Comparison between treatments, only outside planted areas.
-
-#### Smaller recruits
-
-```{r}
-data_fig_small <- result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean_inside = round(mean(n_small_ha_CP, na.rm=TRUE), 1),
-    se_inside = round((sd(n_small_ha_CP, na.rm=TRUE))/sqrt(dplyr::n()), 1),
-    mean_outside = round(mean(n_small_ha_SP, na.rm=TRUE), 1),
-    se_outside = round((sd(n_small_ha_SP, na.rm=TRUE))/sqrt(dplyr::n()), 1)
-  ) |>
-   tidyr::pivot_longer(cols = -tratamento, names_to = c(".value", "side"), names_sep = "_") |> 
-  dplyr::mutate(
-    tratamento = ordered(tratamento,levels = ordem,
-                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
-   tratamento = forcats::fct_recode(tratamento,
-                                     "Nuclei\n25%" = "Nuclei 25%",
-                                     "Strips\n25%" = "Strips 25%",
-                                     "Nuclei\n50%" = "Nuclei 50%",
-                                     "Strips\n50%" = "Strips 50%",
-                                     "Planting\n100%" = "Planting 100%"
-                                     )
-  ) |>
-  dplyr::filter(!is.na(se))
-```
-
-
-Inside planted areas
-
-plantio = CP:
- tratamento .group
- 100           1    
- F25           12   
- N25           12   
- N50           2   
- F50           2   
-
-Outside planted areas
-
-plantio = SP:
- tratamento  .group
- F25          1    
- N50          1    
- N25          1    
- F50          1    
- 100          NA     
-
-
-```{r, fig.width=3.54, fig.height=2.36}
-letras <- data.frame(
-  tratamento = rep(levels(as.factor(data_fig_small$tratamento)), each=2),
-  side = levels(as.factor(data_fig_small$side)),
-  label = c("AB     ","      a",
-            "AB     ","      a",
-            "B      ","      a",
-            "B      ","      a",
-            "A",""),  
-  y = c(5500, 5000, 
-        5500, 4500, 
-        7100, 4500, 
-        7100, 4500, 
-        3500, 6000)            
-)
-
-fig_small <- data_fig_small |>
-  ggplot(aes(x = tratamento, y = mean, fill = side)) +
-  geom_bar(position = position_dodge2(preserve = "single"), 
-           stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
-  scale_fill_manual(labels = c('Planted', 'Unplanted'), 
-                    values = c("#92D050", "white")) +
-  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
-  scale_y_continuous(expand =c(0,0), limits = c(0,7900), breaks = seq(0,  7500, by=1500))+
-  labs(fill = "", 
-       y =  expression("Recruits (n.ha"^{-1}~")"),
-       x = "") +
-  theme_classic()+
-  theme(
-    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
-    axis.text.y = element_text(color="black", size=10),
-    axis.title.y = element_text(color="black", size=11),
-    legend.position = c(0.86, 0.98),
-    plot.margin = margin(t=5, l=2, r=2, 0, "mm"),
-    legend.text = element_text(size = 10, margin = margin(t=0,0,0,l=1, "mm")),
-    legend.key.size = unit(3, "mm"),
-    legend.spacing = unit(0, "mm"),
-    legend.background = element_blank(),
-    legend.title = element_text(size = 8))
-fig_small
-# ggsave("fig_small_recruits.png", plot=fig_small, width=90, height = 90 ,unit="mm")
-```
-
-#### Larger recruits
-
-
-```{r}
-data_fig_large <-result_regenerant |>
-  dplyr::group_by(tratamento)|>
-  dplyr::summarise(
-    mean_inside = round(mean(n_large_ha_CP, na.rm=TRUE), 1),
-    se_inside = round((sd(n_large_ha_CP, na.rm=TRUE))/sqrt(dplyr::n()), 1),
-    mean_outside = round(mean(n_large_ha_SP, na.rm=TRUE), 1),
-    se_outside = round((sd(n_large_ha_SP, na.rm=TRUE))/sqrt(dplyr::n()), 1)
-  ) |>
-   tidyr::pivot_longer(cols = -tratamento, names_to = c(".value", "side"), names_sep = "_") |> 
-  dplyr::mutate(
-    tratamento = ordered(tratamento,levels = ordem,
-                         labels = c("Nuclei 25%", "Strips 25%", "Nuclei 50%", "Strips 50%", "Planting 100%")),
-  tratamento = forcats::fct_recode(tratamento,
-                                     "Nuclei\n25%" = "Nuclei 25%",
-                                     "Strips\n25%" = "Strips 25%",
-                                     "Nuclei\n50%" = "Nuclei 50%",
-                                     "Strips\n50%" = "Strips 50%",
-                                     "Planting\n100%" = "Planting 100%"
-                                     )
-  )|>
-  dplyr::filter(!is.na(se))
-```
-
-
-Inside and outside planted areas are similar
-
-```{r, fig.width=3.54, fig.height=2.36}
-letras <- data.frame(
-  tratamento = rep(levels(as.factor(data_fig_large$tratamento)), each=2),
-  side = levels(as.factor(data_fig_large$side)),
-  label = c("A      ","      a",
-            "A      ","      a",
-            "A      ","      a",
-            "A      ","      a",
-            "A",""),  
-  y = c(180, 470, 
-        180, 400, 
-        180, 200, 
-        180, 470, 
-        180, 400)            
-)
-
-fig_large <- data_fig_large |>
-  ggplot(aes(x = tratamento, y = mean, fill = side)) +
-  geom_bar(position = position_dodge2(preserve = "single"), 
-           stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
-  scale_fill_manual(labels = c('Planted', 'Unplanted'), values = c("#92D050", "white")) +
-  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
-  scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
-  labs(fill = "", 
-       y =  expression("Recruits (n.ha"^{-1}~")"),
-       x = "") +
-  theme_classic()+
-  theme(
-    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
-    axis.text.y = element_text(color="black", size=10),
-    axis.title.y = element_text(color="black", size=11),
-    plot.margin = margin(t=5, l=2, r=2,0, "mm"),
-    legend.position = "none", # c(0.90, 0.95),
-    legend.text = element_text(size = 9, margin = margin(0,0,0,l=1, "mm")),
-    legend.key.size = unit(3, "mm"),
-    legend.spacing = unit(0, "mm"),
-    legend.background = element_blank(),
-    legend.title = element_text(size = 8))
-fig_large
-# ggsave("fig_large_recruits.png", plot=fig_large, width=90, height = 60 ,unit="mm")
-```
-
-#### Altogether:
-
-
-```{r, fig.width=3.54, fig.height=4}
-fig_recruits <- cowplot::plot_grid(#fig_grass+theme(axis.text.x=element_blank()), 
-                                   fig_small + theme(axis.text.x=element_blank()), 
-                                   fig_large, 
-                                   ncol = 1,
-                                   labels = c("(a)", "(b)"), label_size = 10, label_x = 0.01, label_y = 1)
-fig_recruits
-# ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
-```
-
-### (vi) Species list table
-
-Only recruits (not including planted individuals)
-
-```{r}
-table_recruits <- readxl::read_xlsx("Itatinga_Nuc_recruitment_SpeciesList.xlsx") 
-table_recruits |> knitr::kable(format = "html")
-```
-
-Planted species
-
-```{r}
-planted_species <- readxl::read_xlsx("Itatinga_Species_nucleation.xlsx", sheet = "planted species") |>
-  dplyr::rename(scientificName = Species)
-planted_species |> knitr::kable(format = "html")
-```
-
-Altogether
-
-```{r}
-sampled_species <-readxl::read_xlsx("itatinga_sampled_species.xlsx")
-sampled_species |> 
-  dplyr::select(-`Seed dispersal`) |>
-  knitr::kable(format = "html")
-
-```
-
-## D) Species Richness of recruits
-
 Only recruits (smaller and larger), not including planted individuals
 
 ```{r}
 species_table <- readxl::read_xlsx("itatinga_Nuc_regen_species_abundance.xlsx")
-table(species_table$Treatment)
+species_table|>
+  dplyr::select(Treatment, Block, Plot, Planted)|>
+  unique()|>
+  with(table(Block, Plot, by=Treatment))
 ```
 
-#### (i) Summarising
+Viewing top species
 
 ```{r}
-species_table|>
-  dplyr::arrange(Treatment, Block, Plot)
+total_smaller <- sum(species_table$n_sapling)
+total_larger <- sum(species_table$n_tree)
+species_table |>
+  dplyr::group_by(scientificName)|>
+  dplyr::summarise(
+    sum_large = sum(n_tree, na.rm=T)/total_larger,
+    sum_small = sum(n_sapling, na.rm=T)/total_smaller,
+  )|>
+  dplyr::arrange(desc(sum_small)) |>
+  head()
 ```
+
+
+### (i) Considering Baccharis + Vernonanthura
+
 
 Only small regenerants
 
@@ -1081,7 +443,35 @@ dados_list <- species_table |>
 res_inext <- iNEXT::iNEXT(
   dados_list,
   q = 0,
-  size=seq(0,2000, 100),
+  size=seq(0, 2000, 100),
+  datatype = "abundance"
+)
+
+estimativas <- res_inext$iNextEst |>
+  dplyr::bind_rows() |>
+  tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
+```
+
+#### Figure species richness
+
+Figure Recruits' species richness
+
+For Hill q = 0
+
+Only small regenerants and considering ruderal species (*Vernonanthura* & *Baccharis*)
+
+```{r, fig.height=8.26, fig.width=3.54}
+dados_list <- species_table |>
+  dplyr::group_by(Treatment, Planted, scientificName) |>
+  dplyr::summarise(n_total = sum(n_sapling), .groups = "drop") |>
+  dplyr::group_by(Treatment, Planted) |>
+  dplyr::summarise(abundancias = list(n_total), .groups = "drop") |>
+  dplyr::mutate(nome_grupo = paste(Treatment, Planted, sep = "_")) %>% 
+  { setNames(.$abundancias, .$nome_grupo) }
+res_inext <- iNEXT::iNEXT(
+  dados_list,
+  q = 0,
+  size=seq(0, 2000, 100),
   datatype = "abundance"
 )
 
@@ -1089,173 +479,6 @@ estimativas <- res_inext$iNextEst |>
   dplyr::bind_rows() |>
   tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
 
-
-```
-
-
-
-
-```{r}
-prop_regenerant_full <- species_table |>
-  dplyr::mutate(
-    planted_tree = ifelse(`Planting group`=="NA", "No", "Yes"),
-    biotic_fruit = ifelse(`Seed dispersal`=="biotic", "Yes", "No"))|>
-  dplyr::group_by(Treatment, Planted, Block, Plot) |>
-  dplyr::summarise(
-    n_species = dplyr::n(),
-    n_ind = sum(n_total),
-    n_planted_trees = sum(ifelse(planted_tree == "Yes", n_sapling, 0), na.rm = TRUE),
-    n_planted_spp = sum(planted_tree == "Yes"), 
-    n_biotic_trees  = sum(ifelse(biotic_fruit == "Yes", n_sapling, 0), na.rm = TRUE),
-    n_biotic_spp  = sum(biotic_fruit == "Yes"),
-    n_biotic_spp = ifelse(is.na(n_biotic_spp), 0, n_biotic_spp),
-    n_biotic_trees = ifelse(is.na(n_biotic_trees), 0, n_biotic_trees),
-    n_planted_spp = ifelse(is.na(n_planted_spp), 0, n_planted_spp),
-    n_planted_trees = ifelse(is.na(n_planted_trees), 0, n_planted_trees),
-    .groups = "drop") |>
-  dplyr::mutate(
-    prop_planted = n_planted_trees / n_ind,
-    prop_planted_spp = n_planted_spp / n_species,
-    
-    prop_biotic  = n_biotic_trees  / n_ind,
-    prop_biotic_spp  = n_biotic_spp  / n_species
-  )
-```
-
-##### Table S2
-
-```{r}
-prop_regenerant_full |>
-  dplyr::group_by(Treatment, Planted)|>
-  dplyr::summarise(
-    prop_planted_mean = mean(prop_planted, na.rm=T),
-    prop_planted_min = min(prop_planted, na.rm=T),
-    prop_planted_max = max(prop_planted, na.rm=T),
-    
-    prop_planted_spp_mean = mean(prop_planted_spp, na.rm=T),
-    prop_planted_spp_min = min(prop_planted_spp, na.rm=T),
-    prop_planted_spp_max = max(prop_planted_spp, na.rm=T),
-    
-    prop_biotic_mean = mean(prop_biotic, na.rm=T),
-    prop_biotic_min = min(prop_biotic, na.rm=T),
-    prop_biotic_max = max(prop_biotic, na.rm=T),
-    
-    prop_biotic_spp_mean = mean(prop_biotic_spp, na.rm=T),
-    prop_biotic_spp_min = min(prop_biotic_spp, na.rm=T),
-    prop_biotic_spp_max = max(prop_biotic_spp, na.rm=T)
-  ) |>
-  dplyr::mutate(
-    prop_planted_text = sprintf("%.1f (%.1f - %.1f)", 
-                                round(prop_planted_mean,3)*100, 
-                                round(prop_planted_min,3)*100, 
-                                round(prop_planted_max,3)*100),
-    prop_planted_spp_text = sprintf("%.1f (%.1f - %.1f)", 
-                                    round(prop_planted_spp_mean,3)*100, 
-                                    round(prop_planted_spp_min,3)*100, 
-                                    round(prop_planted_spp_max,3)*100)
-    ) |>
-  dplyr::select(Treatment,Planted, prop_planted_text, prop_planted_spp_text) |>
-  tidyr::pivot_wider(
-    names_from = Treatment,
-    values_from = c(prop_planted_text, prop_planted_spp_text)
-    ) # |> writexl::write_xlsx("resulta_prop_recruit.xlsx")
-```
-
-
-
-#### (ii) Statistical analysis for the proportions
-
-**Propotion of individuals from planted species**
-
-```{r}
-mod_binomial <-lme4::glmer(
-  cbind(n_planted_trees, n_ind - n_planted_trees) ~ Treatment*Planted + (1 | Block),
-  family = binomial(link = "logit"),
-  data = prop_regenerant_full
-)
-performance::check_overdispersion(mod_binomial) # heterokedasticity
-DHARMa::plotResiduals(mod_binomial)
-summary(mod_binomial)
-emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
-emmeans::emmeans(mod_binomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
-```
-
-#### Table S3
-
-```{r}
-broom.mixed::tidy(mod_binomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
-sjPlot::tab_model(mod_binomial)
-```
-
-
-**Propotion of planted species**
-
-```{r}
-mod_binomial <-lme4::glmer(
-  cbind(n_planted_spp, n_species - n_planted_spp) ~ Treatment*Planted + (1 | Block),
-  family = binomial(link = "logit"),
-  data = prop_regenerant_full
-)
-performance::check_overdispersion(mod_binomial)
-DHARMa::plotResiduals(mod_binomial)
-summary(mod_binomial)
-emmeans::emmeans(mod_binomial, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
-emmeans::emmeans(mod_binomial, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
-```
-#### Table S3
-
-```{r}
-broom.mixed::tidy(mod_binomial) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
-sjPlot::tab_model(mod_binomial)
-```
-
-
-
-Summary of these proportions:
-
-```{r}
-prop_regenerant <-prop_regenerant_full |>
-  dplyr::group_by(Treatment, Planted) |>
-  dplyr::summarise(
-    prop_planted_mean = mean(prop_planted, na.rm = TRUE),
-    prop_planted_se   = sd(prop_planted, na.rm = TRUE) / sqrt(dplyr::n()),
-    
-    prop_spp_planted_mean = mean(prop_planted_spp, na.rm = TRUE),
-    prop_spp_planted_se   = sd(prop_planted_spp, na.rm = TRUE) / sqrt(dplyr::n()),
-    
-    prop_biotic_mean  = mean(prop_biotic, na.rm = TRUE),
-    prop_biotic_se    = sd(prop_biotic, na.rm = TRUE) / sqrt(dplyr::n()),
-    
-    prop_spp_biotic_mean  = mean(prop_biotic_spp, na.rm = TRUE),
-    prop_spp_biotic_se    = sd(prop_biotic_spp, na.rm = TRUE) / sqrt(dplyr::n()),
-    .groups = "drop"
-  ) |>
-  tidyr::separate(Treatment, into = c("Treatment", "Percent"), sep = "_")|>
-  dplyr::mutate(
-    Percent = ifelse(Percent=="Planted", "100", Percent),
-    Percent = ordered(Percent, levels = c("25", "50", "100"))
-  ) 
-  
-summary_species <- estimativas |>
-  dplyr::filter(Method=="Observed")|>
-  dplyr::mutate(
-    Percent = ifelse(Percent=="Planted", "100", Percent),
-    Percent = ordered(Percent, levels = c("25", "50", "100"))
-  ) |>
-  dplyr::arrange(Order.q,Percent) |> 
-  dplyr::select(Treatment:qD.UCL)|> 
-  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 2))) |> unique()|>
-  dplyr::right_join(prop_regenerant, by=c("Treatment", "Percent", "Planted"))
-
-# summary_species |> writexl::write_xlsx("resulta_diversidade_nuc.xlsx")
-```
-
-
-#### (iii) Figure Recruits' species richness
-
-For Hill q = 0
-
-```{r, fig.height=8.26, fig.width=3.54}
 curvas_df0 <- estimativas |> 
   dplyr::filter(Order.q==0)|> 
   dplyr::filter(!is.na(SC.LCL))|>
@@ -1266,12 +489,6 @@ curvas_df0 <- estimativas |>
     Treatment = ifelse(Treatment=="Full", "Planting 100%", Treatment),
     Treatment = factor(Treatment, levels = c("Nuclei", "Strip", "Planting 100%"), ordered = TRUE)
   ) 
-table(curvas_df0$Treatment)
-```
-
-
-
-```{r, fig.height=8.26, fig.width=3.54}
 fig_recruit_rich <- curvas_df0 |>
   ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
   geom_line(linewidth = 1) +
@@ -1315,13 +532,1839 @@ fig_recruit_rich <- curvas_df0 |>
     panel.spacing = unit(0, "lines")
   )
 fig_recruit_rich
-# ggsave("fig_richness_recruit.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
+# ggsave("fig_richness_all_small_recruits.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
+```
+
+
+
+#### Table S2 - Recruitment (all)
+
+Estimating Density of recruits ($ind.ha^{-1}$) and considering ruderal species (*Baccharis* and *Vernonanthura*)
+
+```{r}
+density_recruits_n_m2 <- species_table |> 
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop")
+
+dens_ha <- density_recruits_n_m2 |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  )
+dens_P_UP <- dens_ha |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  )
+
+prop_table <- tidyr::tibble(
+  Treatment = unique(sort(species_table$Treatment)),
+  prop_P = c(1, 0.25, 0.5, 0.25, 0.5),
+  prop_UP = 1 - prop_P
+)
+
+result_regenerant <- dens_P_UP |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+```
+
+
+**Smaller recruits**
+
+* Only in *planted* areas
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_small_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_small_ha_Inside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+* Only in *unplanted* areas
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    min = round(min(n_small_ha_Outside, na.rm=TRUE), 0),
+    max = round(max(n_small_ha_Outside, na.rm=TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
+    min = round(min(n_small_total_ha, na.rm=TRUE),0),
+    max = round(max(n_small_total_ha, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+**Larger recruits**
+
+All treatments and inside/outside areas showed similar values
+
+* Only in *planted* areas
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Inside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* Only in *unplanted* areas
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Outside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Outside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Outside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_total_ha, na.rm = TRUE), 1),
+    min = round(min(n_large_total_ha, na.rm = TRUE), 0),
+    max = round(max(n_large_total_ha, na.rm = TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+#### Analysis for smaller recruits abundance
+
+Data:
+
+```{r}
+small_df <- species_table |>
+  dplyr::group_by(Treatment, Block, Plot, Planted)|>
+  dplyr::summarise(n = sum(n_sapling), .groups="drop")
+
+small_df |>
+  ggplot(aes(x=Planted, y=n, color=Block))+
+  geom_point()+facet_wrap(~Treatment)+theme_bw()
+```
+
+
+Models:
+
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ Treatment*Planted + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ Treatment + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ Planted + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | Block),
+                   # family = poisson(), # Poisson
+                   family = glmmTMB::nbinom2(), # NB
+                   data = small_df)
+
+# NBinom 1782.688 (null) |	1734.985 (Treatment*Planted) | 1756.665	(only Treament) | 1743.097	(only Planted)
+# Poisson  4032.177	|	3373.854		|	3813.769		|	3759.763
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+```
+
+`non-positive-definite Hessian matrix`  indicates that there are problems in estimating the model parameters. This may be related to redundancies in the random effects, perfect separation, few data for some combinations of factors, or problems in choosing the distribution. Therefore, let's check the singularity:
+
+```{r}
+performance::check_singularity(modelo_reg1)
+performance::check_model(modelo_reg1)
+```
+
+Exploring residuals
+
+```{r, fig.width=10, fig.height=10}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+
+Is there any difference between treatments considering only inside or outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Treatment|Planted) |> 
+  multcomp::cld(adjust="bonferroni")
+```
+
+**Answer:** Yes (inside) and no (outside).
+
+Is there any difference between treatments *not* considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_reg2, ~ Treatment) |> 
+    multcomp::cld(adjust="bonferroni")
+```
+
+
+**Answer:** No.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Planted|Treatment) |> 
+    multcomp::cld(adjust="bonferroni")
+```
+
+**Answer:** Yes.
+
+#### Table S3
+
+```{r}
+sjPlot::tab_model(modelo_reg1)
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |> dplyr::select(-c(group,component))
+```
+
+
+#### Analysis for larger recruits abundance
+
+Data:
+
+```{r}
+large_regenerants_2024 <- species_table |>
+  dplyr::group_by(Treatment, Block, Plot, Planted)|>
+  dplyr::summarise(n = sum(n_tree), .groups="drop")
+```
+
+Plotting
+
+```{r}
+large_regenerants_2024 |>
+  ggplot(aes(x=Planted, y=n, color=Block))+
+  geom_point()+facet_wrap(~Treatment)+theme_bw()
+```
+
+
+Models
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ Treatment*Planted + (1 | Block),
+                   ziformula = ~1,
+                    # family = poisson(),
+                     family = glmmTMB::nbinom2(),
+                    # family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ Treatment + (1 | Block),
+                   ziformula = ~1,
+                   #  family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                  #  family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ Planted + (1 | Block),
+                   ziformula = ~1,
+                   # family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                   #  family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | Block),
+                   ziformula = ~1,
+                    # family = poisson(), # ZIP
+                     family = glmmTMB::nbinom2(), # ZINB
+                    # family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = large_regenerants_2024)
+# Model (null) | (treat*planted) | (treat) | (planted)
+# ZINB 885.72		|	869.63		 |	868.93	|	864.21
+# ZIP  1058.14   | 1015.06		 |	1025.38	|	1024.49
+# Hurdle 880.75	| 872.21		|	868.74		|	975.88
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+performance::check_model(modelo_reg1)
+```
+
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+
+```{r}
+MuMIn::r.squaredGLMM(modelo_reg3)
+# 0.03253385/0.03665597
+```
+
+0.0328/ 0.0338 variance explained by fixed effects and by the entire model (around `r 0.03380077/0.03380078` % is explained by fixed effects)
+
+
+```{r}
+performance::r2(modelo_reg1)
+
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
+  dplyr::select(-c(component, group))|>
+  knitr::kable()
+```
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+
+
+Is there any difference between treatments considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Treatment|Planted) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** No.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Planted|Treatment) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** No.
+
+
+
+#### Propotion of smaller recruits from planted species
+
+
+* With ruderal species
+
+Getting proportions of planted/unplanted species
+
+```{r}
+prop_regenerant_full <- species_table |>
+  dplyr::mutate(
+    planted_tree = ifelse(`Planting group`=="NA", "No", "Yes"))|>
+  dplyr::filter(n_sapling>0)|>
+  dplyr::group_by(Treatment, Planted, Block, Plot) |>
+  dplyr::summarise(
+    n_species = dplyr::n(),
+    n_ind = sum(n_sapling),
+    n_planted_ind = sum(ifelse(planted_tree == "Yes", n_sapling, 0), na.rm = TRUE),
+    n_planted_ind = ifelse(is.na(n_planted_ind), 0, n_planted_ind),
+    n_planted_spp = sum(planted_tree == "Yes"), 
+    n_planted_spp = ifelse(is.na(n_planted_spp), 0, n_planted_spp),
+    .groups = "drop") |>
+  dplyr::mutate(
+    prop_planted_ind = n_planted_ind / n_ind,
+    prop_planted_spp = n_planted_spp / n_species
+  )
+
+prop_regenerant_full |>
+  dplyr::group_by(Treatment, Planted)|>
+  dplyr::summarise(
+    prop_planted_mean = mean(prop_planted_ind, na.rm=T),
+    prop_planted_min = min(prop_planted_ind, na.rm=T),
+    prop_planted_max = max(prop_planted_ind, na.rm=T),
+    prop_planted_spp_mean = mean(prop_planted_spp, na.rm=T),
+    prop_planted_spp_min = min(prop_planted_spp, na.rm=T),
+    prop_planted_spp_max = max(prop_planted_spp, na.rm=T),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    prop_planted = sprintf("%.1f (%.1f - %.1f)", 
+                                round(prop_planted_mean,3)*100, 
+                                round(prop_planted_min,3)*100, 
+                                round(prop_planted_max,3)*100),
+    prop_planted_spp = sprintf("%.1f (%.1f - %.1f)", 
+                                    round(prop_planted_spp_mean,3)*100, 
+                                    round(prop_planted_spp_min,3)*100, 
+                                    round(prop_planted_spp_max,3)*100)
+    ) |>
+  dplyr::select(Treatment,Planted, prop_planted, prop_planted_spp) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = c(prop_planted, prop_planted_spp)
+    ) # |> writexl::write_xlsx("resulta_prop_recruit.xlsx")
+```
+
+Statistical analysis
+
+
+
+```{r}
+mod_binomial_full <-lme4::glmer(
+  cbind(n_planted_ind, n_ind - n_planted_ind) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_full)
+
+performance::check_overdispersion(mod_binomial_full) # no
+performance::check_model(mod_binomial_full)
+DHARMa::plotResiduals(mod_binomial_full)
+
+emmeans::emmeans(mod_binomial_full, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak")
+emmeans::emmeans(mod_binomial_full, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak")
+```
+
+
+```{r}
+broom.mixed::tidy(mod_binomial_full) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_binomial_full)
+```
+
+
+### (ii) *Not* considering Baccharis + Vernonanthura
+
+#### Figure species richness
+
+Hill q = 0
+
+Only small regenerants and considering ruderal species (*Vernonanthura* & *Baccharis*)
+
+```{r}
+dados_list <- species_table |>
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  dplyr::group_by(Treatment, Planted, scientificName) |>
+  dplyr::summarise(n_total = sum(n_sapling), .groups = "drop") |>
+  dplyr::group_by(Treatment, Planted) |>
+  dplyr::summarise(abundancias = list(n_total), .groups = "drop") |>
+  dplyr::mutate(nome_grupo = paste(Treatment, Planted, sep = "_")) %>% 
+  { setNames(.$abundancias, .$nome_grupo) }
+res_inext <- iNEXT::iNEXT(
+  dados_list,
+  q = 0,
+  size=seq(0, 450, 10),
+  datatype = "abundance"
+)
+
+estimativas <- res_inext$iNextEst |>
+  dplyr::bind_rows() |>
+  tidyr::separate(Assemblage, into = c("Treatment", "Percent", "Planted"), sep = "_")
+
+curvas_df0 <- estimativas |> 
+  dplyr::filter(Order.q==0)|> 
+  dplyr::filter(!is.na(SC.LCL))|>
+  dplyr::mutate(
+    Percent = ifelse(Percent=="Planted", "100", Percent),
+    Percent = ordered(Percent, levels = c("25", "50", "100")),
+    Planted = ifelse(Planted=="Inside", "Planted", "Unplanted"),
+    Treatment = ifelse(Treatment=="Full", "Planting 100%", Treatment),
+    Treatment = factor(Treatment, levels = c("Nuclei", "Strip", "Planting 100%"), ordered = TRUE)
+  ) 
+
+fig_recruit_rich <- curvas_df0 |>
+  ggplot(aes(x = m, y = qD, color = Treatment, linetype = Planted)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = qD.LCL, ymax = qD.UCL, fill = Treatment), alpha = 0.2, colour = NA) +
+   geom_point(
+    data = dplyr::filter(curvas_df0, Method == "Observed"),
+    size = 2.5
+  ) +
+  facet_grid(Percent~., 
+             labeller =  as_labeller(
+               c("25" = "(a) Planting 25%",
+                 "50" = "(b) Planting 50%",
+                 "100" = "(c) Planting 100%")
+               )) +
+  scale_color_manual(values=c("red", "blue", "darkgreen"))+
+  scale_fill_manual(values=c("red", "blue", "darkgreen"))+
+  labs(
+    x = "Number of sampling units (regenerants)",
+    y = "Species diversity (Hill Index, q=0)"
+    ) +
+  ggthemes::theme_clean()+
+  scale_x_continuous(expand = c(0.001, 0), breaks = seq(0, 450, 50)) +
+  scale_y_continuous(expand = c(0, 0))+
+  theme(
+     panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(color = "black", hjust = 1, size = 10),
+    axis.text.y = element_text(color = "black", size = 9),
+    axis.title.y = element_text(color = "black", size = 11),
+    strip.text = element_text(color = "black", hjust = 0.5, size = 10),
+    strip.placement = "outside",
+    legend.text = element_text(size = 11),
+    legend.title = element_blank(),
+    legend.key.size = unit(5, "mm"),
+    legend.box.background = element_blank(),
+    legend.box.margin = margin(t = 5, r = 0, b = 0, l = 0, "mm"),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = c(0.25, 0.25),
+    panel.border = element_rect(colour = "black", fill = NA),
+    panel.spacing = unit(0, "lines")
+  )
+```
+
+
+Plotting and saving
+
+```{r, fig.height=8.26, fig.width=3.54}
+fig_recruit_rich
+ggsave("fig_richness_no_ruderal_small_recruits.png", plot=fig_recruit_rich, width=90, height = 210 ,unit="mm")
+```
+
+
+#### Table S2 - Recruitment (no ruderal)
+
+Estimating Density of recruits ($ind.ha^{-1}$) without *Baccharis* and *Vernonanthura*
+
+```{r}
+density_recruits_n_m2 <- species_table |> 
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop")
+
+dens_ha <- density_recruits_n_m2 |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  )
+dens_P_UP <- dens_ha |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  )
+
+prop_table <- tidyr::tibble(
+  Treatment = unique(sort(species_table$Treatment)),
+  prop_P = c(1, 0.25, 0.5, 0.25, 0.5),
+  prop_UP = 1 - prop_P
+)
+
+result_regenerant <- dens_P_UP |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+```
+
+
+**Smaller recruits**
+
+* Only in *planted* areas (without ruderal species)
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_small_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_small_ha_Inside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+* Only in *unplanted* areas (without ruderal species)
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    min = round(min(n_small_ha_Outside, na.rm=TRUE), 0),
+    max = round(max(n_small_ha_Outside, na.rm=TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
+    min = round(min(n_small_total_ha, na.rm=TRUE),0),
+    max = round(max(n_small_total_ha, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+**Larger recruits**
+
+* Only in *planted* areas (without ruderal species)
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Inside, na.rm=TRUE),0)
+  ) |>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* Only in *unplanted* areas
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Outside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Outside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Outside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_total_ha, na.rm = TRUE), 1),
+    min = round(min(n_large_total_ha, na.rm = TRUE), 0),
+    max = round(max(n_large_total_ha, na.rm = TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+#### Analysis for smaller recruits abundance
+
+Data:
+
+```{r}
+small_df <- species_table |>
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  dplyr::group_by(Treatment, Block, Plot, Planted)|>
+  dplyr::summarise(n = sum(n_sapling), .groups="drop")
+
+small_df |>
+  ggplot(aes(x=Planted, y=n, color=Block))+
+  geom_point()+facet_wrap(~Treatment)+theme_bw()
+```
+
+
+Models:
+
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ Treatment*Planted + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ Treatment + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ Planted + (1 | Block),
+                   # family = poisson(),
+                   family = glmmTMB::nbinom2(),
+                   data = small_df)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | Block),
+                   # family = poisson(), # Poisson
+                   family = glmmTMB::nbinom2(), # NB
+                   data = small_df)
+
+# NBinom 1270.77 (null) |	1226.20 (Treatment*Planted) | 1250.26	(only Treament) | 1227.00	(only Planted)
+# Poisson  4032.177	|	3373.854		|	3813.769		|	3759.763
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+```
+
+`non-positive-definite Hessian matrix`  indicates that there are problems in estimating the model parameters. This may be related to redundancies in the random effects, perfect separation, few data for some combinations of factors, or problems in choosing the distribution. Therefore, let's check the singularity:
+
+
+
+```{r}
+performance::check_singularity(modelo_reg1)
+performance::check_model(modelo_reg1)
+```
+
+Exploring residuals
+
+```{r, fig.width=10, fig.height=10}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+
+Is there any difference between treatments considering only inside or outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Treatment|Planted) |> 
+  multcomp::cld(adjust="bonferroni")
+```
+
+**Answer:** No
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Planted|Treatment) |> 
+    multcomp::cld(adjust="bonferroni")
+```
+
+**Answer:** Yes.
+
+```{r}
+sjPlot::tab_model(modelo_reg1)
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |> dplyr::select(-c(group,component))
+```
+
+
+#### Analysis for larger recruits abundance
+
+Data:
+
+```{r}
+large_regenerants_2024 <- species_table |>
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  dplyr::group_by(Treatment, Block, Plot, Planted)|>
+  dplyr::summarise(n = sum(n_tree), .groups="drop")
+```
+
+Plotting
+
+```{r}
+large_regenerants_2024 |>
+  ggplot(aes(x=Planted, y=n, color=Block))+
+  geom_point()+facet_wrap(~Treatment)+theme_bw()
+```
+
+
+Models
+
+```{r}
+modelo_reg1 <- glmmTMB::glmmTMB(n ~ Treatment*Planted + (1 | Block),
+                   ziformula = ~1,
+                    # family = poisson(),
+                     family = glmmTMB::nbinom2(),
+                    # family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg2 <-  glmmTMB::glmmTMB(n ~ Treatment + (1 | Block),
+                   ziformula = ~1,
+                   #  family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                   # family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg3 <-  glmmTMB::glmmTMB(n ~ Planted + (1 | Block),
+                   ziformula = ~1,
+                   # family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                   #  family = glmmTMB::truncated_nbinom2(),
+                   data = large_regenerants_2024)
+modelo_reg_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | Block),
+                   ziformula = ~1,
+                    # family = poisson(), # ZIP
+                     family = glmmTMB::nbinom2(), # ZINB
+                    # family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = large_regenerants_2024)
+# Model (null) | (treat*planted) | (treat) | (planted)
+# ZINB 855.21		|	843.24		 |	840.70	|	838.42
+
+AIC(modelo_reg_null, modelo_reg1, modelo_reg2, modelo_reg3)
+performance::check_model(modelo_reg1)
+```
+
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_reg1)
+DHARMa::plotQQunif(modelo_reg1)
+DHARMa::plotResiduals(modelo_reg3)
+DHARMa::plotQQunif(modelo_reg3)
+```
+
+
+```{r}
+car::Anova(modelo_reg1)
+```
+
+Is there any difference between treatments considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Treatment|Planted) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** No.
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_reg1, ~ Planted|Treatment) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** No.
+
+#### Table S3
+
+```{r}
+sjPlot::tab_model(modelo_reg1)
+
+broom.mixed::tidy(modelo_reg1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
+  knitr::kable()
+```
+
+#### Propotion of smaller recruits from planted species
+
+
+* Without ruderal species
+
+Getting proportions of planted/unplanted species
+
+```{r}
+prop_regenerant_part <- species_table |>
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  dplyr::mutate(
+    planted_tree = ifelse(`Planting group`=="NA", "No", "Yes"))|>
+  dplyr::filter(n_sapling>0)|>
+  dplyr::group_by(Treatment, Planted, Block, Plot) |>
+  dplyr::summarise(
+    n_species = dplyr::n(),
+    n_ind = sum(n_sapling),
+    n_planted_ind = sum(ifelse(planted_tree == "Yes", n_sapling, 0), na.rm = TRUE),
+    n_planted_ind = ifelse(is.na(n_planted_ind), 0, n_planted_ind),
+    n_planted_spp = sum(planted_tree == "Yes"), 
+    n_planted_spp = ifelse(is.na(n_planted_spp), 0, n_planted_spp),
+    .groups = "drop") |>
+  dplyr::mutate(
+    prop_planted_ind = n_planted_ind / n_ind,
+    prop_planted_spp = n_planted_spp / n_species
+  )
+
+prop_regenerant_part |>
+  dplyr::group_by(Treatment, Planted)|>
+  dplyr::summarise(
+    prop_planted_mean = mean(prop_planted_ind, na.rm=T),
+    prop_planted_min = min(prop_planted_ind, na.rm=T),
+    prop_planted_max = max(prop_planted_ind, na.rm=T),
+    prop_planted_spp_mean = mean(prop_planted_spp, na.rm=T),
+    prop_planted_spp_min = min(prop_planted_spp, na.rm=T),
+    prop_planted_spp_max = max(prop_planted_spp, na.rm=T),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    prop_planted = sprintf("%.1f (%.1f - %.1f)", 
+                                round(prop_planted_mean,3)*100, 
+                                round(prop_planted_min,3)*100, 
+                                round(prop_planted_max,3)*100),
+    prop_planted_spp = sprintf("%.1f (%.1f - %.1f)", 
+                                    round(prop_planted_spp_mean,3)*100, 
+                                    round(prop_planted_spp_min,3)*100, 
+                                    round(prop_planted_spp_max,3)*100)
+    ) |>
+  dplyr::select(Treatment,Planted, prop_planted, prop_planted_spp) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = c(prop_planted, prop_planted_spp)
+    ) # |> writexl::write_xlsx("resulta_prop_recruit.xlsx")
+```
+
+
+```{r}
+prop_regenerant_part |>
+  dplyr::group_by(Planted)|>
+  dplyr::summarise(
+    prop_planted_mean = mean(prop_planted_ind, na.rm=T),
+    prop_planted_se = (sd(prop_planted_ind, na.rm=T))/sqrt(dplyr::n()),
+    prop_planted_spp_mean = mean(prop_planted_spp, na.rm=T),
+    prop_planted_spp_se = (sd(prop_planted_spp, na.rm=T))/sqrt(dplyr::n()),
+    .groups = "drop"
+  )
+```
+
+
+Statistical analysis for proportion of individuals:
+
+```{r}
+mod_binomial_part <-lme4::glmer(
+  cbind(n_planted_ind, n_ind - n_planted_ind) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_part)
+
+performance::check_overdispersion(mod_binomial_part) # yes
+```
+
+It should be Beta
+
+```{r}
+mod_beta_part <-glmmTMB::glmmTMB(
+  cbind(n_planted_ind, n_ind - n_planted_ind) ~ Treatment*Planted + (1 | Block),
+  family = glmmTMB::betabinomial(link = "logit"),
+  data = prop_regenerant_part)
+performance::check_model(mod_beta_part)
+DHARMa::plotResiduals(mod_beta_part)
+```
+
+Pairwise:
+
+```{r}
+emmeans::emmeans(mod_beta_part, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak") # no differences
+emmeans::emmeans(mod_beta_part, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak") # All different
+```
+
+Statistical analysis for proportion of individuals:
+
+```{r}
+mod_binomial_prop <-lme4::glmer(
+  cbind(n_planted_spp, n_species - n_planted_spp) ~ Treatment*Planted + (1 | Block),
+  family = binomial(link = "logit"),
+  data = prop_regenerant_part)
+
+performance::check_overdispersion(mod_binomial_prop) # underdispersion
+```
+
+It should be Beta
+
+```{r}
+mod_beta_prop <-glmmTMB::glmmTMB(
+  cbind(n_planted_spp, n_species - n_planted_spp) ~ Treatment*Planted + (1 | Block),
+  family = glmmTMB::betabinomial(link = "logit"),
+  data = prop_regenerant_part)
+performance::check_model(mod_beta_prop)
+DHARMa::plotResiduals(mod_beta_prop)
+```
+
+Pairwise:
+
+```{r}
+emmeans::emmeans(mod_beta_prop, pairwise ~ Treatment | Planted) |> multcomp::cld(adjust="sidak") # no differences
+emmeans::emmeans(mod_beta_prop, pairwise ~  Planted | Treatment) |> multcomp::cld(adjust="sidak") # All different
+```
+
+
+
+#### Table S3
+
+```{r}
+broom.mixed::tidy(mod_beta_part) |> dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3)))
+sjPlot::tab_model(mod_beta_part)
+```
+
+
+### (iii) *Only* considering Baccharis + Vernonanthura
+
+
+#### Table S2 - Only ruderal
+
+Estimating density of recruits ($ind.ha^{-1}$) and without ruderal (*Baccharis* and *Vernonanthura*)
+
+```{r}
+density_ruderal_n_m2 <- species_table |> 
+  dplyr::filter(scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  # dplyr::select(Treatment, Block, Plot, Planted)|>unique()|>   with(table(Block, Plot, by=Treatment)) # Full_Planted P2B5 & P3B1 (Inside)
+  dplyr::add_row(
+    scientificName = c(NA, NA),
+    `Seed dispersal` = c(NA, NA),
+    `Planting group` = c(NA, NA),
+    Treatment = c("Full_Planted", "Full_Planted"),
+    Block = c("B5", "B1"),
+    Plot = c("P2", "P3"),
+    Planted = c("Inside","Inside"),
+    n_sapling= c(0,0),
+    n_tree = c(0,0)
+    ) |>
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop")
+
+dens_ruderal_ha <- density_ruderal_n_m2 |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  )
+dens_ruderal_P_UP <- dens_ruderal_ha |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  )
+
+prop_table <- tidyr::tibble(
+  Treatment = unique(sort(species_table$Treatment)),
+  prop_P = c(1, 0.25, 0.5, 0.25, 0.5),
+  prop_UP = 1 - prop_P
+)
+
+result_ruderal <- dens_ruderal_P_UP |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+```
+
+
+**Smaller recruits**
+
+* Only in *planted* areas
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_small_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_small_ha_Inside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+* Only in *unplanted* areas
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    min = round(min(n_small_ha_Outside, na.rm=TRUE), 0),
+    max = round(max(n_small_ha_Outside, na.rm=TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
+    min = round(min(n_small_total_ha, na.rm=TRUE),0),
+    max = round(max(n_small_total_ha, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+**Larger recruits**
+
+All treatments and inside/outside areas showed similar values
+
+* Only in *planted* areas
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Inside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Inside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Inside, na.rm=TRUE),0)
+  ) |>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* Only in *unplanted* areas
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_ha_Outside, na.rm=TRUE),1),
+    min = round(min(n_large_ha_Outside, na.rm=TRUE),0),
+    max = round(max(n_large_ha_Outside, na.rm=TRUE),0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+* In *total* (planted + unplanted areas)
+
+
+```{r}
+result_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean = round(mean(n_large_total_ha, na.rm = TRUE), 1),
+    min = round(min(n_large_total_ha, na.rm = TRUE), 0),
+    max = round(max(n_large_total_ha, na.rm = TRUE), 0)
+  )|>
+  dplyr::mutate(
+    larger = sprintf("%.1f (%.1f - %.1f)", 
+                                mean, 
+                                min, 
+                                max)) |>
+  dplyr::select(Treatment, larger) |>
+  tidyr::pivot_wider(
+    names_from = Treatment,
+    values_from = larger
+    )
+```
+
+
+#### Analysis for their abundances
+
+```{r}
+ruderal_df <- species_table |> 
+  dplyr::filter(scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes"))|>
+  # dplyr::select(Treatment, Block, Plot, Planted)|>unique()|>   with(table(Block, Plot, by=Treatment)) # Full_Planted P2B5 & P3B1 (Inside)
+  dplyr::add_row(
+    scientificName = c(NA, NA),
+    `Seed dispersal` = c(NA, NA),
+    `Planting group` = c(NA, NA),
+    Treatment = c("Full_Planted", "Full_Planted"),
+    Block = c("B5", "B1"),
+    Plot = c("P2", "P3"),
+    Planted = c("Inside","Inside"),
+    n_sapling= c(0,0),
+    n_tree = c(0,0),
+    n_total= c(0,0)
+    )|>
+  dplyr::group_by(Treatment, Block, Plot, Planted)|>
+  dplyr::summarise(n = sum(n_total), .groups="drop")
+```
+
+Plotting
+
+```{r}
+ruderal_df |>
+  ggplot(aes(x=Planted, y=n, color=Block))+
+  geom_point()+facet_wrap(~Treatment)+theme_bw()
+```
+
+
+Models
+
+```{r}
+modelo_rud1 <- glmmTMB::glmmTMB(n ~ Treatment*Planted + (1 | Block),
+                   ziformula = ~1,
+                    # family = poisson(),
+                     family = glmmTMB::nbinom2(),
+                    # family = glmmTMB::truncated_nbinom2(),
+                   data = ruderal_df)
+modelo_rud2 <-  glmmTMB::glmmTMB(n ~ Treatment + (1 | Block),
+                   ziformula = ~1,
+                   #  family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                    # family = glmmTMB::truncated_nbinom2(),
+                   data = ruderal_df)
+modelo_rud3 <-  glmmTMB::glmmTMB(n ~ Planted + (1 | Block),
+                   ziformula = ~1,
+                   # family = poisson(),
+                    family = glmmTMB::nbinom2(),
+                  #   family = glmmTMB::truncated_nbinom2(),
+                   data = ruderal_df)
+modelo_rud_null <-  glmmTMB::glmmTMB(n ~ 0 + (1 | Block),
+                    ziformula = ~1,
+                    # family = poisson(), # ZIP
+                     family = glmmTMB::nbinom2(), # ZINB
+                    # family = glmmTMB::truncated_nbinom2(), # hurdle
+                   data = ruderal_df)
+# Model (null) | (treat*planted) | (treat) | (planted)
+# ZIP
+
+AIC(modelo_rud_null, modelo_rud1, modelo_rud2, modelo_rud3)
+performance::check_overdispersion(modelo_rud1)
+performance::check_model(modelo_rud1)
+```
+
+
+Exploring residuals
+
+```{r}
+par(mfrow=c(2,2))
+DHARMa::plotResiduals(modelo_rud1)
+DHARMa::plotQQunif(modelo_rud1)
+DHARMa::plotResiduals(modelo_rud3)
+DHARMa::plotQQunif(modelo_rud3)
+```
+
+
+```{r}
+car::Anova(modelo_rud1)
+```
+
+Is there any difference between treatments considering inside/outside?
+
+```{r}
+emmeans::emmeans(modelo_rud1, ~ Treatment|Planted) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** Yes  (planted) and no (only unplanted areas)
+
+Is there any difference between inside/outside considering treatments?
+
+```{r}
+emmeans::emmeans(modelo_rud1, ~ Planted|Treatment) |> 
+  multcomp::cld(adjust = "bonferroni")
+```
+
+**Answer:** No.
+
+#### Table S3
+
+```{r}
+sjPlot::tab_model(modelo_rud1)
+broom.mixed::tidy(modelo_rud1) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 3))) |>
+  dplyr::select(-c(component, group))|>
+  knitr::kable()
+```
+
+
+### (iv) Figure Recruitment
+
+
+*Small letters*: Comparison between treatments, only inside planted areas. 
+
+*Capital letters*: Comparison between treatments, only outside planted areas.
+
+#### Smaller recruits
+
+```{r}
+ordem <- c("Nuclei_25", "Strip_25", "Nuclei_50", "Strip_50", "Full_Planted")
+
+recruits_ha <- species_table |> 
+  dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes")) |>
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop") |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  ) |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  ) |>
+  dplyr::select(Treatment, Block, n_small_ha_Inside:n_large_ha_Outside)
+
+ruderal_ha <- species_table |> 
+  dplyr::filter(scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes")) |>
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop") |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  ) |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  ) |>
+  dplyr::select(Treatment, Block, n_small_ha_Inside:n_large_ha_Outside)
+
+
+prop_table <- tidyr::tibble(
+  Treatment = unique(sort(species_table$Treatment)),
+  prop_P = c(1, 0.25, 0.5, 0.25, 0.5),
+  prop_UP = 1 - prop_P
+)
+
+data_fig_recruits <- recruits_ha |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+data_fig_ruderal <- ruderal_ha |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
+```
+
+Small regenerants
+
+```{r}
+data_fig_small_1 <- data_fig_recruits |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_small_ha_Inside, na.rm=TRUE), 1),
+    se_inside = round((sd(n_small_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    se_outside = round((sd(n_small_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::filter(!is.na(se)) |>
+  dplyr::mutate(class="regenerant")
+
+data_fig_small_2 <- data_fig_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_small_ha_Inside, na.rm=TRUE), 1),
+    se_inside = round((sd(n_small_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    se_outside = round((sd(n_small_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::filter(!is.na(se)) |>
+  dplyr::mutate(class="ruderal")
+data_fig_small <- dplyr::bind_rows(data_fig_small_1,data_fig_small_2)
+```
+
+
+New Figure 
+
+```{r, fig.width=3.54, fig.height=2.36}
+ordem_x <- c(
+  "Nuclei_25_inside", "Nuclei_25_outside",
+  "Strip_25_inside",  "Strip_25_outside",
+  "Nuclei_50_inside", "Nuclei_50_outside",
+  "Strip_50_inside",  "Strip_50_outside",
+  "Full_Planted_inside"
+)
+
+data_fig_small_top2 <- data_fig_small |>
+  group_by(Treatment, side) |>
+  arrange(desc(class)) |>
+  mutate(cum_mean = cumsum(mean)) |>
+  ungroup() |>
+  mutate(Treat_side = interaction(Treatment, side, sep = "_"),
+         Treat_side = factor(Treat_side, levels = ordem_x))
+
+letras <- data.frame(
+  Treat_side = levels(data_fig_small_top2$Treat_side),
+  label = c("Ab","Aa",
+            "Ab","Aa",
+            "Aa","Aa",
+            "Ab","Aa",
+            "A"),  
+  y = c(5000, 4500, 
+        5000, 4000, 
+        6500, 4000, 
+        6500, 4500, 
+        3500)            
+)
+
+
+fig_small<-ggplot(data_fig_small_top2, 
+       aes(x = Treat_side, y = mean, fill = side, pattern = class)) +
+  geom_col_pattern(
+    position = "stack",
+    color = "black",
+    pattern_fill = "#92D050", pattern_alpha = 0.5,
+    pattern_angle = 45, pattern_density = 0.1,
+    pattern_spacing = 0.1
+  ) +
+  scale_pattern_manual(
+    values = c("regenerant" = "none", "ruderal" = "stripe"),
+    guide = "none") +
+  scale_fill_manual(labels = c("Planted", "Unplanted"), 
+                    values = c("#92D050", "white")) +
+  geom_errorbar(
+    data = data_fig_small_top2 |> group_by(Treatment, side) |> slice_tail(n = 1),
+    aes(ymin = cum_mean - se, ymax = cum_mean + se, x = Treat_side),
+    width = .2,
+    inherit.aes = FALSE
+  ) +
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}~")"),
+       x = "") +
+  geom_text(data = letras, 
+          aes(x = Treat_side, y = y, label = label), 
+          inherit.aes = FALSE,  
+          size = 3.5, vjust = -0.5) +
+  scale_x_discrete(labels = function(x) gsub("_", "\n", x)) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,7500), breaks = seq(0,  7000, by=1500))+
+  theme_classic() +
+  theme(
+    axis.text.x = element_blank(), #element_text(color="black", hjust = 0.5, size=9),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    legend.position = c(0.18, 0.95),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+fig_small
+# ggsave("fig_small_recruits.png", plot=fig_small, width=90, height = 90 ,unit="mm")
+
 ```
 
 
 
 
-## E) Total AGB
+Without overabundant species
+
+
+```{r, fig.width=3.54, fig.height=2.36}
+data_fig_recruits |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_small_ha_Inside, na.rm=TRUE), 1),
+    se_inside = round((sd(n_small_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    se_outside = round((sd(n_small_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::filter(!is.na(se)) |>
+  dplyr::mutate(
+    tratamento = factor(Treatment, ordered = TRUE, levels = c("Nuclei_25", "Strip_25", "Nuclei_50", "Strip_50","Full_Planted")),
+    tratamento = forcats::fct_recode(tratamento, 
+                                     "Nuclei\n25%" = "Nuclei_25", "Strips\n25%" = "Strip_25", 
+                                     "Nuclei\n50%" = "Nuclei_50","Strips\n50%" = "Strip_50","Planting\n100%" = "Full_Planted")
+  )|>
+  ggplot(aes(x = tratamento, y = mean, fill = side)) +
+  geom_bar(position = position_dodge2(preserve = "single"), 
+           stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
+  scale_fill_manual(labels = c('Planted', 'Unplanted'), 
+                    values = c("#92D050", "white")) +
+  # geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,1700), breaks = seq(0,  1700, by=500))+
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}~")"),
+       x = "") +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    legend.position = c(0.16, 0.98),
+    plot.margin = margin(t=5, l=2, r=2, 0, "mm"),
+    legend.text = element_text(size = 10, margin = margin(t=0,0,0,l=1, "mm")),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+```
+
+#### Larger recruits
+
+
+```{r}
+data_fig_large <- result_regenerant |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_large_ha_Inside, na.rm=TRUE), 1),
+    se_inside = round((sd(n_large_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_large_ha_Outside, na.rm=TRUE), 1),
+    se_outside = round((sd(n_large_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::mutate(
+    Treatment = ordered(Treatment,levels = ordem),
+    tratamento = forcats::fct_recode(Treatment, 
+                                     "Nuclei 25%" = "Nuclei_25", "Strips 25%" = "Strip_25", 
+                                     "Nuclei 50%" = "Nuclei_50", "Strips 50%" = "Strip_50","Planting 100%" = "Full_Planted"),
+    Treat_side = interaction(Treatment, side, sep = "_"),
+    Treat_side = factor(Treat_side, ordered = TRUE, levels = ordem_x,
+                         labels = c("Nuclei\n  25%", " " ,
+                                    "Strips\n  25%", "  ", 
+                                    "Nuclei\n  50%", "   ",
+                                    "Strips\n  50%", "    ",
+                                    "Planting\n100%"))
+  )|>
+  dplyr::filter(!is.na(se))
+```
+
+
+Inside and outside planted areas are similar
+
+```{r, fig.width=3.54, fig.height=2.36}
+letras <- data.frame(
+  tratamento = rep(levels(as.factor(data_fig_large$tratamento)), each=2),
+  side = levels(as.factor(data_fig_large$side)),
+  label = c("A      ","      a",
+            "A      ","      a",
+            "A      ","      a",
+            "A      ","      a",
+            "A",""),  
+  y = c(300, 470, 
+        200, 340, 
+        200, 200, 
+        300, 470, 
+        320, 400)            
+)
+
+fig_large <- data_fig_large |>
+  ggplot(aes(x = tratamento, y = mean, fill = side)) +
+  geom_bar(
+    position = position_dodge2(width = 1, padding = .1,preserve = "single"), 
+    stat = "identity", color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
+  scale_fill_manual(labels = c('Planted', 'Unplanted'), values = c("#92D050", "white")) +
+  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}*")"),
+       x = "") +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    plot.margin = margin(t=5, l=2, r=2,0, "mm"),
+    legend.position = "none", # c(0.90, 0.95),
+    legend.text = element_text(size = 9, margin = margin(0,0,0,l=1, "mm")),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+fig_large
+```
+
+Another way
+
+
+```{r}
+letras <- data.frame(
+  Treat_side = levels(data_fig_large$Treat_side),
+  label = c("Aa","Aa",
+            "Aa","Aa",
+            "Aa","Aa",
+            "Aa","Aa",
+            "Aa"),  
+  y = c(300, 470, 
+        200, 340, 
+        200, 200, 
+        300, 470, 
+        320) 
+)
+data_fig_large <- data_fig_large |>
+  dplyr::mutate(hjust_value = ifelse(Treat_side == last(Treat_side), 0.5, 0))
+
+fig_large<-ggplot(data_fig_large, 
+       aes(x = Treat_side, y = mean, fill = side)) +
+  geom_bar(
+    stat = "identity",
+    position = "stack",
+    color = "black") +
+  scale_fill_manual(labels = c("Planted", "Unplanted"), 
+                    values = c("#92D050", "white")) +
+  geom_errorbar(
+    aes(ymin = mean - se, ymax = mean + se, x = Treat_side),
+    width = .2
+  ) +
+  labs(fill = "", 
+       y =  expression("Recruits (n.ha"^{-1}*")"),
+       x = "") +
+  geom_text(data = letras, 
+          aes(x = Treat_side, y = y, label = label), 
+          inherit.aes = FALSE,  
+          size = 3.5, vjust = -0.5) +
+  scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(color="black", hjust = data_fig_large$hjust_value, size=9),
+    axis.text.y = element_text(color="black", size=10),
+    axis.title.y = element_text(color="black", size=11),
+    legend.position = "none",# c(0.18, 0.95),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(3, "mm"),
+    legend.spacing = unit(0, "mm"),
+    legend.background = element_blank(),
+    legend.title = element_text(size = 8))
+fig_large
+```
+
+
+#### Altogether:
+
+
+```{r, fig.width=3.54, fig.height=4}
+fig_recruits <- cowplot::plot_grid(fig_small + theme(axis.text.x=element_blank()), 
+                                   fig_large, 
+                                   ncol = 1,
+                                   labels = c("(a)", "(b)"), label_size = 10, label_x = 0.01, label_y = c(1,1.1)
+                                   )
+fig_recruits
+ggsave("fig_recruits.png", plot=fig_recruits, width=90, height = 100 ,unit="mm")
+```
+
+### (vi) Species list table
+
+Only recruits (not including planted individuals)
+
+```{r}
+table_recruits <- readxl::read_xlsx("Itatinga_Nuc_recruitment_SpeciesList.xlsx") 
+table_recruits |> knitr::kable(format = "html")
+```
+
+!
+Altogether
+
+```{r}
+sampled_species <-readxl::read_xlsx("itatinga_sampled_species.xlsx")
+sampled_species |> 
+  dplyr::select(-`Seed dispersal`) |>
+  knitr::kable(format = "html")
+
+```
+
+
+
+## D) Total AGB
 
 ### (i)  Organizing data
 
@@ -1430,6 +2473,7 @@ Comparison only inside plots over the years
 
 
 ```{r}
+ordem <-c("N25", "F25", "N50", "F50", "100")
 AGB_inside0 <- trees_clean |>
   dplyr::group_by(ano, tratamento, bloco, parcela, plantio)|>
   dplyr::summarise(
