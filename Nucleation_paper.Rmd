@@ -570,7 +570,7 @@ prop_table <- tidyr::tibble(
   prop_UP = 1 - prop_P
 )
 
-result_regenerant <- dens_P_UP |>
+result_regenerant_all <- dens_P_UP |>
   dplyr::left_join(prop_table, by = "Treatment") |>
   dplyr::mutate(
     n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
@@ -590,7 +590,7 @@ result_regenerant <- dens_P_UP |>
 * Only in *planted* areas
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_small_ha_Inside, na.rm=TRUE),1),
@@ -612,7 +612,7 @@ result_regenerant |>
 * Only in *unplanted* areas
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
@@ -636,7 +636,7 @@ result_regenerant |>
 
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_small_total_ha, na.rm=TRUE),1),
@@ -663,7 +663,7 @@ All treatments and inside/outside areas showed similar values
 * Only in *planted* areas
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_large_ha_Inside, na.rm=TRUE),1),
@@ -686,7 +686,7 @@ result_regenerant |>
 * Only in *unplanted* areas
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_large_ha_Outside, na.rm=TRUE),1),
@@ -710,7 +710,7 @@ result_regenerant |>
 
 
 ```{r}
-result_regenerant |>
+result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean = round(mean(n_large_total_ha, na.rm = TRUE), 1),
@@ -1968,6 +1968,27 @@ broom.mixed::tidy(modelo_rud1) |>
 ordem <- c("Nuclei_25", "Strip_25", "Nuclei_50", "Strip_50", "Full_Planted")
 
 recruits_ha <- species_table |> 
+  dplyr::mutate(
+    n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
+    n_large = dplyr::if_else(is.na(n_tree), 0, n_tree)) |>
+  dplyr::group_by(Treatment, Block, Planted) |>
+  dplyr::summarise(
+    n_small_m2 = (sum(n_small, na.rm=T))/(144*4), 
+    n_large_m2 = (sum(n_large, na.rm=T))/(144*4), 
+    .groups = "drop") |>
+  dplyr::mutate(
+    n_small_ha = n_small_m2 * 10000,
+    n_large_ha = n_large_m2 * 10000
+  ) |>
+  tidyr::pivot_wider(
+    names_from = Planted,
+    values_from = c(n_small_ha, n_large_ha),
+    names_sep = "_"
+  ) |>
+  dplyr::select(Treatment, Block, n_small_ha_Inside:n_large_ha_Outside)
+
+
+exc_recruits_ha <- species_table |> 
   dplyr::filter(!scientificName %in% c("Baccharis dracunculifolia", "Vernonanthura polyanthes")) |>
   dplyr::mutate(
     n_small = dplyr::if_else(is.na(n_sapling), 0, n_sapling),
@@ -2040,6 +2061,19 @@ data_fig_ruderal <- ruderal_ha |>
          n_small_total_ha,
          n_large_total_ha
   )
+
+data_fig_exc_ruderal <- exc_recruits_ha |>
+  dplyr::left_join(prop_table, by = "Treatment") |>
+  dplyr::mutate(
+    n_small_total_ha = dplyr::coalesce(n_small_ha_Inside * prop_P, 0)  + dplyr::coalesce(n_small_ha_Outside * prop_UP, 0),
+    n_large_total_ha = dplyr::coalesce(n_large_ha_Inside * prop_P, 0) + dplyr::coalesce(n_large_ha_Outside * prop_UP, 0)
+  ) |>
+  dplyr::select(Treatment,
+         starts_with("n_small_ha"),
+         starts_with("n_large_ha"),
+         n_small_total_ha,
+         n_large_total_ha
+  )
 ```
 
 Small regenerants
@@ -2055,7 +2089,7 @@ data_fig_small_1 <- data_fig_recruits |>
   ) |>
    tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
   dplyr::filter(!is.na(se)) |>
-  dplyr::mutate(class="regenerant")
+  dplyr::mutate(class="all recruits")
 
 data_fig_small_2 <- data_fig_ruderal |>
   dplyr::group_by(Treatment)|>
@@ -2068,7 +2102,24 @@ data_fig_small_2 <- data_fig_ruderal |>
    tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
   dplyr::filter(!is.na(se)) |>
   dplyr::mutate(class="ruderal")
-data_fig_small <- dplyr::bind_rows(data_fig_small_1,data_fig_small_2)
+
+data_fig_small_3 <- data_fig_exc_ruderal |>
+  dplyr::group_by(Treatment)|>
+  dplyr::summarise(
+    mean_inside = round(mean(n_small_ha_Inside, na.rm=TRUE), 1),
+    se_inside = round((sd(n_small_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
+    mean_outside = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
+    se_outside = round((sd(n_small_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
+  ) |>
+   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
+  dplyr::filter(!is.na(se)) |>
+  dplyr::mutate(class = "except ruderal")
+
+data_fig_small_alterado <- data_fig_small_1
+
+data_fig_small_alterado$mean <- data_fig_small_3$mean
+
+data_fig_small <- dplyr::bind_rows(data_fig_small_alterado, data_fig_small_2)
 ```
 
 
@@ -2089,20 +2140,18 @@ data_fig_small_top2 <- data_fig_small |>
   mutate(cum_mean = cumsum(mean)) |>
   ungroup() |>
   mutate(Treat_side = interaction(Treatment, side, sep = "_"),
-         Treat_side = factor(Treat_side, levels = ordem_x))
+         Treat_side = factor(Treat_side, levels = ordem_x))|>
+  dplyr::arrange(desc(class),Treat_side)
 
 letras <- data.frame(
   Treat_side = levels(data_fig_small_top2$Treat_side),
-  label = c("Ab","Aa",
-            "Ab","Aa",
-            "Aa","Aa",
-            "Ab","Aa",
+  label = c("AB","a",
+            "AB","a",
+            "B","a",
+            "B","a",
             "A"),  
-  y = c(5000, 4500, 
-        5000, 4000, 
-        6500, 4000, 
-        6500, 4500, 
-        3500)            
+  y = c(5500, 5000, 5200, 4500, 
+        7000, 4500, 7000, 4800, 3800)           
 )
 
 
@@ -2134,7 +2183,7 @@ fig_small<-ggplot(data_fig_small_top2,
           inherit.aes = FALSE,  
           size = 3.5, vjust = -0.5) +
   scale_x_discrete(labels = function(x) gsub("_", "\n", x)) +
-  scale_y_continuous(expand =c(0,0), limits = c(0,7500), breaks = seq(0,  7000, by=1500))+
+  scale_y_continuous(expand =c(0,0), limits = c(0,8000), breaks = seq(0,  8000, by=1500))+
   theme_classic() +
   theme(
     axis.text.x = element_blank(), #element_text(color="black", hjust = 0.5, size=9),
@@ -2154,56 +2203,11 @@ fig_small
 
 
 
-Without overabundant species
-
-
-```{r, fig.width=3.54, fig.height=2.36}
-data_fig_recruits |>
-  dplyr::group_by(Treatment)|>
-  dplyr::summarise(
-    mean_inside = round(mean(n_small_ha_Inside, na.rm=TRUE), 1),
-    se_inside = round((sd(n_small_ha_Inside, na.rm=TRUE))/sqrt(dplyr::n()), 1),
-    mean_outside = round(mean(n_small_ha_Outside, na.rm=TRUE), 1),
-    se_outside = round((sd(n_small_ha_Outside, na.rm=TRUE))/sqrt(dplyr::n()), 1)
-  ) |>
-   tidyr::pivot_longer(cols = -Treatment, names_to = c(".value", "side"), names_sep = "_") |> 
-  dplyr::filter(!is.na(se)) |>
-  dplyr::mutate(
-    tratamento = factor(Treatment, ordered = TRUE, levels = c("Nuclei_25", "Strip_25", "Nuclei_50", "Strip_50","Full_Planted")),
-    tratamento = forcats::fct_recode(tratamento, 
-                                     "Nuclei\n25%" = "Nuclei_25", "Strips\n25%" = "Strip_25", 
-                                     "Nuclei\n50%" = "Nuclei_50","Strips\n50%" = "Strip_50","Planting\n100%" = "Full_Planted")
-  )|>
-  ggplot(aes(x = tratamento, y = mean, fill = side)) +
-  geom_bar(position = position_dodge2(preserve = "single"), 
-           stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
-  scale_fill_manual(labels = c('Planted', 'Unplanted'), 
-                    values = c("#92D050", "white")) +
-  # geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
-  scale_y_continuous(expand =c(0,0), limits = c(0,1700), breaks = seq(0,  1700, by=500))+
-  labs(fill = "", 
-       y =  expression("Recruits (n.ha"^{-1}~")"),
-       x = "") +
-  theme_classic()+
-  theme(
-    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
-    axis.text.y = element_text(color="black", size=10),
-    axis.title.y = element_text(color="black", size=11),
-    legend.position = c(0.16, 0.98),
-    plot.margin = margin(t=5, l=2, r=2, 0, "mm"),
-    legend.text = element_text(size = 10, margin = margin(t=0,0,0,l=1, "mm")),
-    legend.key.size = unit(3, "mm"),
-    legend.spacing = unit(0, "mm"),
-    legend.background = element_blank(),
-    legend.title = element_text(size = 8))
-```
-
 #### Larger recruits
 
 
 ```{r}
-data_fig_large <- result_regenerant |>
+data_fig_large <- result_regenerant_all |>
   dplyr::group_by(Treatment)|>
   dplyr::summarise(
     mean_inside = round(mean(n_large_ha_Inside, na.rm=TRUE), 1),
@@ -2229,50 +2233,6 @@ data_fig_large <- result_regenerant |>
 ```
 
 
-Inside and outside planted areas are similar
-
-```{r, fig.width=3.54, fig.height=2.36}
-letras <- data.frame(
-  tratamento = rep(levels(as.factor(data_fig_large$tratamento)), each=2),
-  side = levels(as.factor(data_fig_large$side)),
-  label = c("A      ","      a",
-            "A      ","      a",
-            "A      ","      a",
-            "A      ","      a",
-            "A",""),  
-  y = c(300, 470, 
-        200, 340, 
-        200, 200, 
-        300, 470, 
-        320, 400)            
-)
-
-fig_large <- data_fig_large |>
-  ggplot(aes(x = tratamento, y = mean, fill = side)) +
-  geom_bar(
-    position = position_dodge2(width = 1, padding = .1,preserve = "single"), 
-    stat = "identity", color = "black") +
-  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = .2, position = position_dodge(0.9)) +
-  scale_fill_manual(labels = c('Planted', 'Unplanted'), values = c("#92D050", "white")) +
-  geom_text(data = letras, aes(x = tratamento, y = y, label = label), size=3.5, vjust = -0.5) +
-  scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
-  labs(fill = "", 
-       y =  expression("Recruits (n.ha"^{-1}*")"),
-       x = "") +
-  theme_classic()+
-  theme(
-    axis.text.x = element_text(color="black", hjust = 0.5, size=10),
-    axis.text.y = element_text(color="black", size=10),
-    axis.title.y = element_text(color="black", size=11),
-    plot.margin = margin(t=5, l=2, r=2,0, "mm"),
-    legend.position = "none", # c(0.90, 0.95),
-    legend.text = element_text(size = 9, margin = margin(0,0,0,l=1, "mm")),
-    legend.key.size = unit(3, "mm"),
-    legend.spacing = unit(0, "mm"),
-    legend.background = element_blank(),
-    legend.title = element_text(size = 8))
-fig_large
-```
 
 Another way
 
@@ -2280,17 +2240,19 @@ Another way
 ```{r}
 letras <- data.frame(
   Treat_side = levels(data_fig_large$Treat_side),
-  label = c("Aa","Aa",
-            "Aa","Aa",
-            "Aa","Aa",
-            "Aa","Aa",
-            "Aa"),  
-  y = c(300, 470, 
-        200, 340, 
+  label = c("A","a",
+            "A","a",
+            "A","a",
+            "A","a",
+            "A"),  
+  y = c(310, 470, 
+        200, 370, 
         200, 200, 
         300, 470, 
-        320) 
+        320)            
 )
+
+
 data_fig_large <- data_fig_large |>
   dplyr::mutate(hjust_value = ifelse(Treat_side == last(Treat_side), 0.5, 0))
 
@@ -2309,10 +2271,7 @@ fig_large<-ggplot(data_fig_large,
   labs(fill = "", 
        y =  expression("Recruits (n.ha"^{-1}*")"),
        x = "") +
-  geom_text(data = letras, 
-          aes(x = Treat_side, y = y, label = label), 
-          inherit.aes = FALSE,  
-          size = 3.5, vjust = -0.5) +
+  geom_text(data = letras, aes(x = Treat_side, y = y, label = label),  inherit.aes = FALSE,  size = 3.5, vjust = -0.5) +
   scale_y_continuous(expand =c(0,0), limits = c(0,550), breaks = seq(0, 500, by=100))+
   theme_classic() +
   theme(
