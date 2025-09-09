@@ -1,6 +1,5 @@
 ---
 title: "Nucleation Experiment"
-author: "Holl et al."
 date: "`r Sys.Date()`"
 format:
   html:
@@ -24,7 +23,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # After first submission
 
-  * Data and R codes available: [github](https://github.com/jvmelis/Nucleation), then it will be submited to [zenodo](https://zenodo.org)
+  * Data and R codes available: [github](https://github.com/), then it will be submited to [zenodo](https://zenodo.org)
 
   * Inclusion of species diversity of recruiting plants: item [I.C](#c-recruitment), with rarefaction and Proportion of Biotic/Abiotic Seed Dispersal and  Planted/Unplanted species.
   
@@ -2310,16 +2309,6 @@ table_recruits <- readxl::read_xlsx("Itatinga_Nuc_recruitment_SpeciesList.xlsx")
 table_recruits |> knitr::kable(format = "html")
 ```
 
-!
-Altogether
-
-```{r}
-sampled_species <-readxl::read_xlsx("itatinga_sampled_species.xlsx")
-sampled_species |> 
-  dplyr::select(-`Seed dispersal`) |>
-  knitr::kable(format = "html")
-
-```
 
 
 
