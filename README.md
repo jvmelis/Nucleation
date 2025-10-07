@@ -1,0 +1,12 @@
+Publisher: Journal of Applied Ecology
+Title: Effectiveness of Spatially Patterned Methods to Restore Tropical Semideciduous Forest
+Authors: Karen Holl, Juliano van Melis, Matheus Ferreira, Danilo R. A. de Almeida, Flávia Florido, Gabriel de Oliveira Parreiras, Rildo Moreira, Pedro H. S. Brancalion
+Abstract: 
+1. Spatially patterned restoration methods, such as applied nucleation and planting in strips, are promising approaches for scaling up projects to meet ambitious restoration commitments in an ecologically and economically sound manner. However, to date these planting approaches have mostly been compared in small experimental plots, and the comparative costs have not been quantified.
+2. We compared five restoration treatments – nuclei and strip planting each covering 25% and 50% of the plot area and full planting – in replicated 1-ha plots in seasonal semideciduous forest in southeastern Brazil. We report on field measurements of planted tree survival, tree recruitment, woody above-ground biomass (AGB), and grass cover 7 years after planting, as well as LiDAR- derived measures of canopy height, canopy cover and leaf area index after 5 and 7 years. Finally, we report detailed cost estimates and effectiveness for each treatment.
+3. After 7 years, aboveground biomass, canopy height, canopy cover, and leaf area index were greatest in the full planting treatment, intermediate in both 50% nuclei and strips treatments, and lowest in the two 25% planting treatments. Grass cover was greater in planted areas of nuclei than strips. Woody recruitment was dominated by ruderal species and did not show strong treatment trends.
+4. Planting a quarter or half of the area cost ~50-60% and ~70-80%, respectively, of the price of planting the entire area. For the most part, planting 100% was similarly cost effective per unit of biomass accumulation and canopy cover as spatially patterned restoration methods after 7 years. 
+5. Synthesis and Applications: Our study shows that choosing the most effective restoration strategy at scale depends equally if not more on economic and logistical than ecological constraints. If rapid carbon sequestration is a primary project goal, then full planting for forest restoration is the most cost-effective strategy over the first few years unless natural regeneration is fast in the system. In regions with flat land, where mechanical restoration methods are feasible, planting strips is logistically easier to implement than nuclei.
+
+It includes:
+Clean data to perform all analyses and raw versions of the graphs.
